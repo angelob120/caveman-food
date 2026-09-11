@@ -89,6 +89,8 @@ These are the **law**. If reality contradicts them, update the doc AND tell the 
 | 2026-09-11 | Root package.json for Railpack Node detection | Mavis |
 | 2026-09-11 | Auto-seed on first deploy | Mavis |
 | 2026-09-11 | **Live verified — all 11 smoke checks pass** | Mavis |
+| 2026-09-11 | **Daily-use UX redesign** — sticky header + search, hero mini-cards (1-tap MAKE), contained scroll windows, inline archive buttons, ingredient chip picker, floating quick-add, collapsible manage panel, toast notifications | Mavis |
+| 2026-09-11 | Backend: `?include_archived=true` (admin) on GET /api/foods | Mavis |
 | 2026-09-11 | Frontend interactions JS (modals, admin panel, app entry) | Agent 5 |
 | 2026-09-11 | Backend Express API with all routes + dashboard aggregator | Agent 2 |
 | 2026-09-11 | Railway project `caveman-food` created; Postgres provisioned; web service scaffolded; config files written (railway.toml, Procfile, .env.example, .gitignore) | Agent 6 |
