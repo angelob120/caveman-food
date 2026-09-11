@@ -133,9 +133,15 @@ function requireSignedIn(req, res, next) {
   }).catch(() => res.status(401).json({ error: 'sign-in required' }));
 }
 
-// First Apple user inherits the pre-multi-tenant rows (user_id = ''). After
-// that, no row can ever be claimed.
+// The pre-multi-tenant rows (user_id = '') are the owner's. "First Apple user
+// to sign in inherits them" was a race: anyone signing in before the owner did
+// would take the lot. When OWNER_APPLE_SUB is set, only that sub can claim.
+const OWNER_SUBS = new Set(
+  (process.env.OWNER_APPLE_SUB || '').split(',').map((s) => s.trim()).filter(Boolean)
+);
+
 async function claimLegacyRowsIfFirstUser(query, uid) {
+  if (OWNER_SUBS.size > 0 && !OWNER_SUBS.has(uid)) return;
   const tables = ['stores', 'ingredients', 'foods', 'food_ingredients', 'prep_inventory', 'shopping_list', 'food_log', 'settings'];
   let anyOwned = false;
   for (const t of tables) {
