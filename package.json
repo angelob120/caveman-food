@@ -1,0 +1,19 @@
+{
+  "name": "caveman-food",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Caveman Food — one-page dashboard that tells you what to eat right now",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
