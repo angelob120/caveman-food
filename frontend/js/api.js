@@ -39,9 +39,13 @@
       return request('/dashboard', { method: 'GET' })
     },
 
-    async getFoods(type) {
-      const q = type ? ('?type=' + encodeURIComponent(type)) : ''
-      return request('/foods' + q, { method: 'GET' })
+    async getFoods(type, opts) {
+      const params = []
+      if (type) params.push('type=' + encodeURIComponent(type))
+      if (opts && opts.includeArchived) params.push('include_archived=true')
+      const q = params.length ? ('?' + params.join('&')) : ''
+      const o = (opts && opts.includeArchived) ? { headers: adminHeader() } : {}
+      return request('/foods' + q, o)
     },
 
     async getFood(id) {

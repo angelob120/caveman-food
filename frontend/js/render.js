@@ -1,6 +1,7 @@
 // frontend/js/render.js
 // Pure render functions. No event listeners. Exposes window.CFRender.
-// Style: 2-space indent, single quotes, no semicolons, modern JS.
+// Daily-use: hero mini-cards (1-tap MAKE), inline archive button (admin),
+// search filter (name + ingredients), archive rendering.
 
 (function () {
   // ---------- helpers ----------
@@ -52,9 +53,16 @@
 
   function statusLabel(status) {
     if (status === 'ready') return '🟢 READY'
-    if (status === 'need_shop') return '🟡 NEED SHOP'
-    if (status === 'missing') return '🔴 MISSING'
+    if (status === 'need_shop') return '🔴 NEED SHOP'
+    if (status === 'missing') return '🟡 MISSING'
     return status
+  }
+
+  function statusLabelShort(status) {
+    if (status === 'ready') return '🟢'
+    if (status === 'need_shop') return '🔴'
+    if (status === 'missing') return '🟡'
+    return ''
   }
 
   function primaryStoreName(food) {
@@ -62,16 +70,54 @@
     return ''
   }
 
-  // ---------- card builder (SEED.md markup) ----------
+  function isAdmin() {
+    return typeof localStorage !== 'undefined' && localStorage.cf_admin === 'true'
+  }
+
+  function matchesSearch(food, query) {
+    if (!query) return true
+    const q = query.toLowerCase()
+    if ((food.name || '').toLowerCase().indexOf(q) !== -1) return true
+    const ings = Array.isArray(food.ingredients) ? food.ingredients : []
+    for (const ing of ings) {
+      if (ing && ing.name && ing.name.toLowerCase().indexOf(q) !== -1) return true
+    }
+    return false
+  }
+
+  // ---------- HERO MINI CARD (1-tap MAKE THIS for the daily flow) ----------
+
+  function miniCardEl(food) {
+    const status = food.status || 'missing'
+    return el('div', {
+      class: 'cf-mini-card',
+      dataset: { id: food.id, status: status, type: food.food_type || '' }
+    }, [
+      el('span', { class: 'cf-mini-emoji', text: food.image || '🍽️' }),
+      el('span', { class: 'cf-mini-name', text: food.name || '' }),
+      el('span', { class: 'cf-mini-cost', text: fmtMoney(food.cost_per_meal) }),
+      el('button', {
+        'data-action': 'make',
+        'data-id': food.id,
+        'data-source': 'home',
+        class: 'cf-mini-make',
+        text: '🍴 EAT'
+      })
+    ])
+  }
+
+  // ---------- MAIN FOOD CARD (with optional archive button) ---------------
 
   function foodCardEl(food) {
     const status = food.status || 'missing'
+    const archived = food.active === false
     const card = el('article', {
       class: 'food-card',
       dataset: {
         id: food.id,
         status: status,
-        type: food.food_type || ''
+        type: food.food_type || '',
+        archived: archived ? 'true' : 'false'
       }
     })
 
@@ -82,31 +128,57 @@
     ])
     card.appendChild(top)
 
+    // Cost + time meta (cost highlighted)
     const parts = []
-    if (typeof food.cost_per_meal === 'number') parts.push(fmtMoney(food.cost_per_meal))
-    if (typeof food.cook_minutes === 'number') parts.push(fmtTime(food.cook_minutes))
+    if (typeof food.cost_per_meal === 'number') parts.push(el('span', { class: 'cost', text: fmtMoney(food.cost_per_meal) }))
+    if (typeof food.cook_minutes === 'number') parts.push(el('span', { text: fmtTime(food.cook_minutes) }))
     const store = primaryStoreName(food)
-    if (store) parts.push(store)
-    const meta = el('div', { class: 'food-meta', text: parts.join(' · ') })
+    if (store) parts.push(el('span', { text: store }))
+    if (archived) parts.push(el('span', { text: 'ARCHIVED', class: 'archived-tag' }))
+    const meta = el('div', { class: 'food-meta' }, parts)
     card.appendChild(meta)
 
     const ul = el('ul', { class: 'ingredients-compact' })
     const ings = Array.isArray(food.ingredients) ? food.ingredients : []
     for (const ing of ings) {
-      ul.appendChild(el('li', { text: ing && ing.name ? ing.name : '' }))
+      const li = el('li', {
+        text: ing && ing.name ? ing.name : '',
+        class: ing && ing.have ? 'have' : ''
+      })
+      ul.appendChild(li)
     }
     card.appendChild(ul)
 
-    const actions = el('div', { class: 'food-actions' }, [
-      el('button', { 'data-action': 'make', text: 'MAKE THIS' }),
-      el('button', { 'data-action': 'add-shopping', text: 'ADD TO SHOPPING' })
-    ])
+    // Primary CTA — MAKE THIS (the daily use case)
+    const makeBtn = el('button', {
+      'data-action': 'make',
+      'data-id': food.id,
+      class: 'primary',
+      text: '🍴 MAKE THIS'
+    })
+    const shopBtn = el('button', {
+      'data-action': 'add-shopping',
+      'data-id': food.id,
+      text: '🛒 Shopping'
+    })
+    const actions = el('div', { class: 'food-actions' }, [makeBtn, shopBtn])
     card.appendChild(actions)
+
+    // Inline archive button (admin only)
+    if (isAdmin()) {
+      const archiveBtn = el('button', {
+        class: 'cf-card-archive',
+        'data-action': archived ? 'restore' : 'archive',
+        'data-id': food.id,
+        'aria-label': archived ? 'Restore' : 'Archive'
+      })
+      card.appendChild(archiveBtn)
+    }
 
     return card
   }
 
-  // ---------- filter logic (AND across active filters) ----------
+  // ---------- filter logic (AND across active filters + search) -----------
 
   function matchesFilters(food, activeFilters, preppedFoodIds) {
     if (!Array.isArray(activeFilters) || activeFilters.length === 0) return true
@@ -129,25 +201,31 @@
     return true
   }
 
-  // ---------- render functions ----------
+  // ---------- HERO: WHAT CAN I MAKE (horizontal mini cards) ---------------
 
   function renderWhatCanIMake(listEl, foods) {
     if (!listEl) return
     clear(listEl)
     const list = Array.isArray(foods) ? foods : []
     if (list.length === 0) {
-      listEl.appendChild(el('div', { class: 'empty', text: 'Nothing ready to make right now. Check the shopping list.' }))
+      listEl.appendChild(el('div', { class: 'empty', text: 'Nothing ready. Mark ingredients HAVE or check the shopping list.' }))
       return
     }
     for (const food of list) {
-      listEl.appendChild(foodCardEl(food))
+      listEl.appendChild(miniCardEl(food))
     }
   }
 
-  function renderFoodGrid(gridEl, foods, activeFilters, preppedList) {
+  // ---------- BROWSE GRID (with search + filters + archive support) -------
+
+  function renderFoodGrid(gridEl, foods, activeFilters, preppedList, searchQuery, options) {
     if (!gridEl) return
     clear(gridEl)
     const list = Array.isArray(foods) ? foods : []
+
+    const opts = options || {}
+    const showArchived = !!opts.showArchived
+    const admin = isAdmin()
 
     const preppedIds = {}
     if (Array.isArray(preppedList)) {
@@ -161,17 +239,48 @@
     }
 
     const filtered = list.filter(function (food) {
-      return matchesFilters(food, activeFilters, preppedIds)
+      // Archive filter — public users never see archived
+      if (food.active === false) {
+        if (!admin || !showArchived) return false
+      }
+      if (!matchesFilters(food, activeFilters, preppedIds)) return false
+      if (!matchesSearch(food, searchQuery)) return false
+      return true
     })
 
     if (filtered.length === 0) {
-      gridEl.appendChild(el('div', { class: 'empty', text: 'No foods match these filters.' }))
+      const msg = searchQuery
+        ? 'No foods match "' + searchQuery + '".'
+        : 'No foods match these filters.'
+      gridEl.appendChild(el('div', { class: 'empty', text: msg }))
       return
     }
+
+    // Sort: ready first, then missing, then need_shop; alphabetical within
+    const order = { ready: 0, missing: 1, need_shop: 2 }
+    filtered.sort(function (a, b) {
+      const oa = order[a.status] != null ? order[a.status] : 3
+      const ob = order[b.status] != null ? order[b.status] : 3
+      if (oa !== ob) return oa - ob
+      return (a.name || '').localeCompare(b.name || '')
+    })
+
     for (const food of filtered) {
       gridEl.appendChild(foodCardEl(food))
     }
   }
+
+  function renderBrowseMeta(metaEl, totalShown, totalActive, searchQuery, activeFilters) {
+    if (!metaEl) return
+    clear(metaEl)
+    const parts = []
+    parts.push(totalShown + ' of ' + totalActive + ' foods')
+    if (searchQuery) parts.push('"' + searchQuery + '"')
+    if (activeFilters && activeFilters.length) parts.push(activeFilters.length + ' filter' + (activeFilters.length === 1 ? '' : 's'))
+    metaEl.appendChild(el('span', { text: parts.join(' · ') }))
+  }
+
+  // ---------- PREPPED (target chips + list) -------------------------------
 
   function renderPrepped(targetsEl, listEl, prepTargets, prepped) {
     if (targetsEl) {
@@ -181,10 +290,14 @@
       const snackTarget = typeof t.snack_target === 'number' ? t.snack_target : 0
       const fullCurrent = typeof t.full_current === 'number' ? t.full_current : 0
       const snackCurrent = typeof t.snack_current === 'number' ? t.snack_current : 0
-      targetsEl.appendChild(el('div', {
-        class: 'prep-targets-summary',
-        text: 'Full: ' + fullCurrent + ' / ' + fullTarget + '   ·   Snack: ' + snackCurrent + ' / ' + snackTarget
-      }))
+      targetsEl.appendChild(el('div', { class: 'prep-target' }, [
+        el('div', { class: 'prep-target-num', text: fullCurrent + '/' + fullTarget }),
+        el('div', { class: 'prep-target-label', text: 'Full boxes' })
+      ]))
+      targetsEl.appendChild(el('div', { class: 'prep-target' }, [
+        el('div', { class: 'prep-target-num', text: snackCurrent + '/' + snackTarget }),
+        el('div', { class: 'prep-target-label', text: 'Snack boxes' })
+      ]))
     }
 
     if (!listEl) return
@@ -200,11 +313,13 @@
       const rowEl = el('div', { class: 'prep-row', dataset: { foodId: food.id } }, [
         el('span', { class: 'prep-name', text: food.name || '' }),
         el('span', { class: 'prep-count', text: boxes + ' boxes' }),
-        el('button', { 'data-action': 'eat-one', text: 'EAT ONE' })
+        el('button', { 'data-action': 'eat-one', 'data-id': food.id, text: '🍴 EAT ONE' })
       ])
       listEl.appendChild(rowEl)
     }
   }
+
+  // ---------- SHOPPING ----------------------------------------------------
 
   function renderShopping(shopListEl, shopGrandEl, shopping) {
     if (shopListEl) {
@@ -223,8 +338,10 @@
           ])
           const ul = el('ul', { class: 'shop-items' })
           for (const item of items) {
-            const label = (item && item.name ? item.name : '') + ' — ' + fmtMoney(item && item.price)
-            ul.appendChild(el('li', { text: label }))
+            const li = el('li')
+            li.appendChild(el('span', { class: 'shop-name', text: item && item.name ? item.name : '' }))
+            li.appendChild(el('span', { class: 'shop-price', text: fmtMoney(item && item.price) }))
+            ul.appendChild(li)
           }
           blockEl.appendChild(ul)
           blockEl.appendChild(el('div', { class: 'shop-total', text: fmtMoney(total) }))
@@ -236,12 +353,16 @@
     if (shopGrandEl) {
       clear(shopGrandEl)
       const grand = shopping && typeof shopping.grand_total === 'number' ? shopping.grand_total : 0
-      shopGrandEl.appendChild(el('div', {
-        class: 'shop-grand-total',
-        text: 'TOTAL TRIP ' + fmtMoney(grand)
-      }))
+      if (grand > 0) {
+        shopGrandEl.appendChild(el('div', {
+          class: 'shop-grand-total-inner',
+          text: 'TOTAL TRIP ' + fmtMoney(grand)
+        }))
+      }
     }
   }
+
+  // ---------- STATS -------------------------------------------------------
 
   function renderStats(weekEl, monthEl, stats) {
     const s = stats || {}
@@ -267,11 +388,19 @@
 
     if (monthEl) {
       clear(monthEl)
+      const prev = typeof month.previous_total === 'number' ? month.previous_total : 0
+      const total = typeof month.total === 'number' ? month.total : 0
+      const diff = prev - total
+      let diffText = ''
+      if (prev > 0 && diff !== 0) {
+        const arrow = diff > 0 ? '↓' : '↑'
+        diffText = ' ' + arrow + ' $' + Math.abs(diff).toFixed(0) + ' vs last'
+      }
       const rows = [
         ['Groceries', fmtMoney(month.groceries)],
         ['Eating out', fmtMoney(month.eating_out)],
-        ['Total', fmtMoney(month.total)],
-        ['Previous month', fmtMoney(month.previous_total)]
+        ['Total this month', fmtMoney(total)],
+        ['Previous month', fmtMoney(prev) + diffText]
       ]
       for (const r of rows) {
         monthEl.appendChild(el('div', { class: 'week-row' }, [
@@ -282,6 +411,8 @@
     }
   }
 
+  // ---------- INGREDIENTS -------------------------------------------------
+
   function renderIngredients(ingListEl, ingredients) {
     if (!ingListEl) return
     clear(ingListEl)
@@ -290,23 +421,84 @@
       ingListEl.appendChild(el('div', { class: 'empty', text: 'No ingredients yet.' }))
       return
     }
+    const admin = isAdmin()
     for (const ing of list) {
       const have = !!ing.have
       const rowEl = el('div', { class: 'ingredient-row', dataset: { id: ing.id } }, [
         el('span', { class: 'ing-name', text: ing.name || '' }),
         el('span', {
           class: 'ing-status ' + (have ? 'ing-have' : 'ing-out'),
-          text: have ? '🟢 HAVE' : '🔴 OUT'
+          text: have ? '🟢' : '🔴'
         })
       ])
-      if (typeof localStorage !== 'undefined' && localStorage.cf_admin === 'true') {
+      if (admin) {
         rowEl.appendChild(el('button', {
           class: 'ing-toggle',
           'data-action': 'toggle',
-          text: 'TOGGLE'
+          'data-id': ing.id,
+          text: have ? '→ OUT' : '→ HAVE'
         }))
       }
       ingListEl.appendChild(rowEl)
+    }
+  }
+
+  // ---------- ADMIN: food list (with archive/restore/delete) -------------
+
+  function renderAdminFoodList(listEl, foods) {
+    if (!listEl) return
+    clear(listEl)
+    const list = Array.isArray(foods) ? foods : []
+    if (list.length === 0) {
+      listEl.appendChild(el('div', { class: 'empty', text: 'No foods.' }))
+      return
+    }
+    for (const food of list) {
+      const archived = food.active === false
+      const row = el('div', {
+        class: 'cf-admin-food-row',
+        dataset: { id: food.id, archived: archived ? 'true' : 'false' }
+      })
+      row.appendChild(el('span', { text: (food.image || '🍽️') + ' ' + (food.name || '') }))
+      const actions = el('div', { class: 'cf-admin-row-actions' })
+      if (archived) {
+        actions.appendChild(el('button', {
+          class: 'cf-restore',
+          'data-action': 'restore',
+          'data-id': food.id,
+          text: 'RESTORE'
+        }))
+        actions.appendChild(el('button', {
+          class: 'cf-delete',
+          'data-action': 'delete-food',
+          'data-id': food.id,
+          text: 'DELETE'
+        }))
+      } else {
+        actions.appendChild(el('button', {
+          'data-action': 'archive',
+          'data-id': food.id,
+          text: 'ARCHIVE'
+        }))
+      }
+      row.appendChild(actions)
+      listEl.appendChild(row)
+    }
+  }
+
+  // ---------- ADMIN: ingredient picker chips -----------------------------
+
+  function renderIngredientChips(containerEl, ingredients, selectedIds) {
+    if (!containerEl) return
+    clear(containerEl)
+    const sel = new Set(selectedIds || [])
+    for (const ing of (Array.isArray(ingredients) ? ingredients : [])) {
+      const chip = el('div', {
+        class: 'cf-ing-chip' + (sel.has(ing.id) ? ' selected' : ''),
+        'data-id': ing.id,
+        text: ing.name || ''
+      })
+      containerEl.appendChild(chip)
     }
   }
 
@@ -314,11 +506,15 @@
 
   window.CFRender = {
     foodCardEl: foodCardEl,
+    miniCardEl: miniCardEl,
     renderWhatCanIMake: renderWhatCanIMake,
     renderFoodGrid: renderFoodGrid,
+    renderBrowseMeta: renderBrowseMeta,
     renderPrepped: renderPrepped,
     renderShopping: renderShopping,
     renderStats: renderStats,
-    renderIngredients: renderIngredients
+    renderIngredients: renderIngredients,
+    renderAdminFoodList: renderAdminFoodList,
+    renderIngredientChips: renderIngredientChips
   }
 })()

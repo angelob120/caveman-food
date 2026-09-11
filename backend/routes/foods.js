@@ -60,7 +60,13 @@ router.get('/', async (req, res) => {
     if (type && !ALLOWED_TYPES.includes(type)) {
       return res.status(400).json({ error: `unknown type: ${type}` })
     }
-    const foods = await getAllFoods(type)
+    // Public reads exclude archived (active=false). Admin can request archived.
+    const includeArchived = req.query.include_archived === 'true'
+    const isAdmin = req.header('x-admin-password') === (process.env.ADMIN_PASSWORD || '123')
+    if (includeArchived && !isAdmin) {
+      return res.status(401).json({ error: 'admin password required' })
+    }
+    const foods = await getAllFoods(type, { includeArchived })
     res.json(foods)
   } catch (err) {
     console.error('GET /api/foods failed:', err)

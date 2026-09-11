@@ -89,20 +89,22 @@ const buildFood = async (foodRow) => {
   }
 }
 
-const getAllFoods = async (filterType = null) => {
+const getAllFoods = async (filterType = null, opts = {}) => {
+  const { includeArchived = false } = opts
+  const activeWhere = includeArchived ? '' : 'active = TRUE AND '
   let sql
   let params = []
   if (filterType === 'prepped') {
     sql = `SELECT f.*
              FROM foods f
              JOIN prep_inventory pi ON pi.food_id = f.id
-            WHERE f.active = TRUE AND pi.boxes_remaining > 0
+            WHERE ${activeWhere}pi.boxes_remaining > 0
             ORDER BY f.id`
   } else if (['full', 'quick', 'snack'].includes(filterType)) {
-    sql = 'SELECT * FROM foods WHERE active = TRUE AND food_type = $1 ORDER BY id'
+    sql = `SELECT * FROM foods WHERE ${activeWhere}food_type = $1 ORDER BY id`
     params = [filterType]
   } else {
-    sql = 'SELECT * FROM foods WHERE active = TRUE ORDER BY id'
+    sql = `SELECT * FROM foods WHERE ${activeWhere}TRUE ORDER BY id`
   }
   const { rows } = await query(sql, params)
   return Promise.all(rows.map(buildFood))

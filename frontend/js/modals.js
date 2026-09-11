@@ -1,7 +1,6 @@
 // frontend/js/modals.js
 // Modal open/close logic for #cf-detail-modal, #cf-random-modal, #cf-admin-modal.
-// Renders modal body content. Relies on global click delegation in app.js
-// to handle [data-action="make"] / [data-action="add-shopping"] clicks.
+// Relies on global click delegation in app.js for action buttons inside modals.
 
 (function () {
   'use strict'
@@ -20,7 +19,12 @@
 
   const money = (n) => {
     if (n == null || isNaN(Number(n))) return ''
-    return '$' + Number(n).toFixed(2)
+    return '~$' + Number(n).toFixed(2)
+  }
+
+  const fmtTime = (min) => {
+    if (typeof min !== 'number') return ''
+    return min + ' min'
   }
 
   const refresh = () => {
@@ -42,15 +46,28 @@
     if (el) el.classList.remove('hidden')
   }
 
+  const statusClass = (s) => {
+    if (s === 'ready') return 'status-ready'
+    if (s === 'need_shop') return 'status-need-shop'
+    if (s === 'missing') return 'status-missing'
+    return 'status-missing'
+  }
+  const statusLabel = (s) => {
+    if (s === 'ready') return '🟢 READY'
+    if (s === 'need_shop') return '🔴 NEED SHOP'
+    if (s === 'missing') return '🟡 MISSING'
+    return s
+  }
+
   // ---------- detail modal ----------
   const renderIngredientLine = (ing) => {
     const ok = !!ing.have
+    const cls = ok ? 'have' : 'missing'
     const icon = ok ? '✓' : '✕'
-    const cls = ok ? 'ing-have' : 'ing-miss'
     const storeTag = ing.store_name
-      ? ` <span class="ing-store-tag">(${escape(ing.store_name)})</span>`
+      ? ` <span class="dim">(${escape(ing.store_name)})</span>`
       : ''
-    return `<li class="${cls}"><span class="ing-icon">${icon}</span> ${escape(ing.name)}${storeTag}</li>`
+    return `<li class="${cls}"><span class="dim">${icon}</span> ${escape(ing.name)}${storeTag}</li>`
   }
 
   const renderInstructions = (text) => {
@@ -61,17 +78,9 @@
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean)
-    if (lines.length === 0) {
-      return '<p class="empty">No instructions.</p>'
-    }
-    if (lines.length === 1) {
-      return `<ol class="steps single"><li>${escape(lines[0])}</li></ol>`
-    }
-    return (
-      '<ol class="steps">' +
-      lines.map((l) => `<li>${escape(l)}</li>`).join('') +
-      '</ol>'
-    )
+    if (lines.length === 0) return '<p class="empty">No instructions.</p>'
+    if (lines.length === 1) return `<ol class="detail-steps single"><li>${escape(lines[0])}</li></ol>`
+    return '<ol class="detail-steps">' + lines.map((l) => `<li>${escape(l)}</li>`).join('') + '</ol>'
   }
 
   const openDetail = (food) => {
@@ -81,25 +90,23 @@
 
     const storeName = (food.primary_store && food.primary_store.name) || '—'
     const ingredients = Array.isArray(food.ingredients) ? food.ingredients : []
-    const missing = Array.isArray(food.missing_ingredients)
-      ? food.missing_ingredients
-      : []
+    const missing = Array.isArray(food.missing_ingredients) ? food.missing_ingredients : []
     const status = food.status || 'ready'
 
     body.innerHTML = `
-      <header class="detail-head">
-        <div class="detail-emoji">${escape(food.image || '🍽️')}</div>
-        <div class="detail-titles">
-          <h2 class="detail-name">${escape(food.name || '')}</h2>
+      <div class="detail-head">
+        <span class="detail-emoji">${escape(food.image || '🍽️')}</span>
+        <div>
+          <h2 class="detail-title">${escape(food.name || '')}</h2>
           <div class="detail-meta">
-            ${money(food.cost_per_meal)}${food.cost_per_meal != null ? ' per meal' : ''}
-            · ${food.cook_minutes || 0} min
+            <strong>${money(food.cost_per_meal)}</strong> per meal
+            · ${fmtTime(food.cook_minutes)}
             · ${escape(storeName)}
             ${food.calories ? '· ' + food.calories + ' cal' : ''}
           </div>
-          <div class="detail-status status-${escape(status)}">${escape(status.toUpperCase())}</div>
+          <div class="status ${statusClass(status)}" style="margin-top:6px;">${statusLabel(status)}</div>
         </div>
-      </header>
+      </div>
 
       ${
         missing.length
@@ -107,21 +114,21 @@
           : ''
       }
 
-      <section class="detail-section">
-        <h3>Ingredients</h3>
+      <div class="detail-section">
+        <h4>Ingredients</h4>
         <ul class="detail-ingredients">
           ${ingredients.length ? ingredients.map(renderIngredientLine).join('') : '<li class="empty">No ingredients listed.</li>'}
         </ul>
-      </section>
+      </div>
 
-      <section class="detail-section">
-        <h3>Instructions</h3>
-        ${renderInstructions(food.instructions)}
-      </section>
+      <div class="detail-section">
+        <h4>Instructions</h4>
+        ${renderInstructions(food.instructions_short || food.instructions)}
+      </div>
 
       <div class="detail-actions">
-        <button class="btn btn-primary big" data-action="make" data-id="${food.id}">🍽️ MAKE THIS</button>
-        <button class="btn big" data-action="add-shopping" data-id="${food.id}">➕ ADD TO SHOPPING</button>
+        <button class="primary" data-action="make" data-id="${food.id}">🍴 MAKE THIS</button>
+        <button class="secondary" data-action="add-shopping" data-id="${food.id}">🛒 Shopping</button>
       </div>
     `
 
@@ -148,19 +155,16 @@
 
     const storeName = (food.primary_store && food.primary_store.name) || '—'
     body.innerHTML = `
-      <div class="random-card">
-        <div class="random-emoji">${escape(food.image || '🍽️')}</div>
-        <h2 class="random-name">${escape(food.name || '')}</h2>
-        <div class="random-meta">
-          ${money(food.cost_per_meal)}${food.cost_per_meal != null ? ' per meal' : ''}
-          · ${food.cook_minutes || 0} min
-          · ${escape(storeName)}
-          ${food.calories ? '· ' + food.calories + ' cal' : ''}
+      <div class="random-body">
+        <div class="detail-emoji">${escape(food.image || '🍽️')}</div>
+        <h2 class="detail-title" style="font-size:1.4rem;">${escape(food.name || '')}</h2>
+        <div class="detail-meta" style="justify-content:center;">
+          <strong>${money(food.cost_per_meal)}</strong> per meal
+          · ${fmtTime(food.cook_minutes)}
         </div>
-        <div class="random-status status-${escape(food.status || 'ready')}">
-          ${escape((food.status || 'ready').toUpperCase())}
-        </div>
-        <button class="btn btn-primary big" data-action="make" data-id="${food.id}">🍽️ MAKE IT</button>
+        <div class="status ${statusClass(food.status)}" style="margin: 10px auto; display: inline-block;">${statusLabel(food.status)}</div>
+        <p class="dim" style="margin: 12px 0;">${food.calories ? food.calories + ' cal · ' : ''}from ${escape(storeName)}</p>
+        <button class="primary big-btn" data-action="make" data-id="${food.id}" style="width:100%; margin-top: 12px;">🍴 MAKE IT</button>
       </div>
     `
 
@@ -170,25 +174,41 @@
   // ---------- admin login modal ----------
   const openAdminLogin = () => {
     showModal('cf-admin-modal')
-    // clear + focus
     const pwInput = findEl('cf-admin-pw')
-    const errEl = findEl('cf-admin-error')
     if (pwInput) {
       pwInput.value = ''
       setTimeout(() => pwInput.focus(), 30)
     }
-    if (errEl) errEl.textContent = ''
+  }
+
+  const trySubmit = () => {
+    const pwInput = findEl('cf-admin-pw')
+    const pw = (pwInput && pwInput.value) || ''
+    if (pw !== '123') {
+      if (pwInput) {
+        pwInput.value = ''
+        pwInput.focus()
+      }
+      alert('❌ Wrong password')
+      return
+    }
+    localStorage.setItem('cf_admin', 'true')
+    localStorage.setItem('cf_admin_pw', pw)
+    if (pwInput) pwInput.value = ''
+    closeAll()
+    if (window.CFAdmin && typeof window.CFAdmin.onAdminModeChange === 'function') {
+      window.CFAdmin.onAdminModeChange()
+    }
+    refresh()
   }
 
   const handleAdminSubmit = () => {
     const submit = findEl('cf-admin-submit')
     if (!submit) return
-
     submit.addEventListener('click', (e) => {
       e.preventDefault()
       trySubmit()
     })
-
     const pwField = findEl('cf-admin-pw')
     if (pwField) {
       pwField.addEventListener('keydown', (e) => {
@@ -200,52 +220,19 @@
     }
   }
 
-  const trySubmit = () => {
-    const pwInput = findEl('cf-admin-pw')
-    const errEl = findEl('cf-admin-error')
-    const pw = (pwInput && pwInput.value) || ''
-    if (pw !== '123') {
-      if (errEl) {
-        errEl.textContent = '❌ Wrong password'
-        errEl.className = 'admin-error show'
-      }
-      if (pwInput) {
-        pwInput.value = ''
-        pwInput.focus()
-      }
-      return
-    }
-    localStorage.setItem('cf_admin', 'true')
-    localStorage.setItem('cf_admin_pw', pw)
-    if (pwInput) pwInput.value = ''
-    if (errEl) errEl.textContent = ''
-    closeAll()
-    if (window.CFAdmin && typeof window.CFAdmin.onAdminModeChange === 'function') {
-      window.CFAdmin.onAdminModeChange()
-    }
-    refresh()
-  }
-
-  // ---------- backdrop close + [data-close] ----------
+  // ---------- backdrop close + [data-close] + Escape ----------
   document.addEventListener('click', (e) => {
-    // explicit close button
     if (e.target.closest('[data-close]')) {
       closeAll()
       return
     }
-    // backdrop click (click on .modal but not on .modal-content or its descendants)
     const modal = e.target.closest('.modal')
-    if (modal && e.target === modal) {
-      closeAll()
-    }
+    if (modal && e.target === modal) closeAll()
   })
-
-  // Escape closes any open modal
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeAll()
   })
 
-  // ---------- boot ----------
   const boot = () => {
     handleAdminSubmit()
   }
@@ -256,6 +243,5 @@
     boot()
   }
 
-  // expose
   window.CFModals = { openDetail, openRandom, openAdminLogin, closeAll }
 })()
