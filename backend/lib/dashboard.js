@@ -1,5 +1,5 @@
 // Dashboard aggregator + Food shape builder.
-// One place that knows how a Food object looks, so all routes stay consistent.
+// All queries scoped by `userId` (Apple sub) for multi-tenant isolation.
 
 const { query } = require('../db')
 const { costPerMealFromIngredients, perMealCost } = require('./cost')
@@ -33,23 +33,22 @@ const buildIngredient = (row) => ({
 
 // Fetch the food row's ingredients (joined with store) and assemble the
 // full Food shape. Always re-reads — caller should pass a fresh food row.
-const buildFood = async (foodRow) => {
+const buildFood = async (userId, foodRow) => {
   const { rows } = await query(
     `SELECT i.id, i.name, i.store_id, s.name AS store_name,
             i.package_price, i.package_size, i.servings_per_package, i.have
        FROM food_ingredients fi
        JOIN ingredients i ON i.id = fi.ingredient_id
        LEFT JOIN stores s ON s.id = i.store_id
-      WHERE fi.food_id = $1
+      WHERE fi.food_id = $1 AND fi.user_id = $2
       ORDER BY i.id`,
-    [foodRow.id],
+    [foodRow.id, userId]
   )
   const ingredients = rows.map(buildIngredient)
   const missing = ingredients.filter((i) => !i.have).map((i) => i.name)
   const cost = costPerMealFromIngredients(ingredients)
 
-  // Primary store: the store that appears on most of the food's ingredients,
-  // tiebreak by lowest store_id. Falls back to null if no ingredients carry a store.
+  // Primary store: the store that appears on most of the food's ingredients.
   let primaryStore = null
   if (ingredients.length > 0) {
     const counts = new Map()
@@ -89,43 +88,61 @@ const buildFood = async (foodRow) => {
   }
 }
 
-const getAllFoods = async (filterType = null, opts = {}) => {
+const getAllFoods = async (userId, filterType = null, opts = {}) => {
   const { includeArchived = false } = opts
   const activeWhere = includeArchived ? '' : 'active = TRUE AND '
   let sql
-  let params = []
+  let params = [userId]
   if (filterType === 'prepped') {
     sql = `SELECT f.*
              FROM foods f
-             JOIN prep_inventory pi ON pi.food_id = f.id
-            WHERE ${activeWhere}pi.boxes_remaining > 0
+             JOIN prep_inventory pi ON pi.food_id = f.id AND pi.user_id = f.user_id
+            WHERE ${activeWhere}f.user_id = $1 AND pi.boxes_remaining > 0
             ORDER BY f.id`
   } else if (['full', 'quick', 'snack'].includes(filterType)) {
-    sql = `SELECT * FROM foods WHERE ${activeWhere}food_type = $1 ORDER BY id`
-    params = [filterType]
+    sql = `SELECT * FROM foods WHERE ${activeWhere}user_id = $1 AND food_type = $2 ORDER BY id`
+    params.push(filterType)
   } else {
-    sql = `SELECT * FROM foods WHERE ${activeWhere}TRUE ORDER BY id`
+    sql = `SELECT * FROM foods WHERE ${activeWhere}user_id = $1 ORDER BY id`
   }
   const { rows } = await query(sql, params)
-  return Promise.all(rows.map(buildFood))
+  return Promise.all(rows.map((r) => buildFood(userId, r)))
 }
 
 // --- Settings ------------------------------------------------------------
 
-const getSettings = async () => {
-  const { rows } = await query('SELECT key, value FROM settings')
+// Per-user settings. If the user has no settings row yet, seed defaults.
+const getSettings = async (userId) => {
+  const { rows } = await query(
+    'SELECT key, value FROM settings WHERE user_id = $1',
+    [userId]
+  )
+  if (rows.length === 0) {
+    const defaults = {
+      full_prep_target: '10',
+      snack_prep_target: '5',
+      monthly_food_target: '400',
+    }
+    for (const [k, v] of Object.entries(defaults)) {
+      await query(
+        'INSERT INTO settings (user_id, key, value) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+        [userId, k, v]
+      )
+    }
+    return { ...defaults }
+  }
   const out = {}
   for (const r of rows) out[r.key] = r.value
   return out
 }
 
-const refreshSettings = async (app) => {
-  app.locals.settings = await getSettings()
+const refreshSettings = async (_app, _userId) => {
+  // No-op: per-user settings are read fresh each request.
 }
 
 // --- Stats ---------------------------------------------------------------
 
-const getWeekStats = async () => {
+const getWeekStats = async (userId) => {
   const { rows } = await query(
     `SELECT
         COUNT(*) FILTER (WHERE source IN ('home','prepped'))::int AS home_meals,
@@ -133,10 +150,12 @@ const getWeekStats = async () => {
         COALESCE(SUM(cost) FILTER (WHERE source IN ('home','prepped')), 0) AS home_cost,
         COALESCE(SUM(cost) FILTER (WHERE source = 'restaurant'), 0)        AS out_cost
        FROM food_log
-      WHERE eaten_at >= NOW() - INTERVAL '7 days'`,
+      WHERE user_id = $1 AND eaten_at >= NOW() - INTERVAL '7 days'`,
+    [userId]
   )
   const { rows: prepRows } = await query(
-    'SELECT COALESCE(SUM(boxes_remaining),0)::int AS boxes FROM prep_inventory',
+    'SELECT COALESCE(SUM(boxes_remaining),0)::int AS boxes FROM prep_inventory WHERE user_id = $1',
+    [userId]
   )
   const r = rows[0]
   return {
@@ -148,20 +167,24 @@ const getWeekStats = async () => {
   }
 }
 
-const getMonthStats = async () => {
+const getMonthStats = async (userId) => {
   const { rows } = await query(
     `SELECT
         COALESCE(SUM(cost) FILTER (WHERE source IN ('home','prepped')), 0) AS groceries,
         COALESCE(SUM(cost) FILTER (WHERE source = 'restaurant'), 0)        AS eating_out
        FROM food_log
-      WHERE eaten_at >= DATE_TRUNC('month', NOW())
+      WHERE user_id = $1
+        AND eaten_at >= DATE_TRUNC('month', NOW())
         AND eaten_at <  DATE_TRUNC('month', NOW()) + INTERVAL '1 month'`,
+    [userId]
   )
   const { rows: prevRows } = await query(
     `SELECT COALESCE(SUM(cost), 0) AS total
        FROM food_log
-      WHERE eaten_at >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+      WHERE user_id = $1
+        AND eaten_at >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
         AND eaten_at <  DATE_TRUNC('month', NOW())`,
+    [userId]
   )
   const r = rows[0]
   const groceries = parseFloat(r.groceries) || 0
@@ -176,15 +199,16 @@ const getMonthStats = async () => {
 
 // --- Shopping aggregation -----------------------------------------------
 
-const getShopping = async () => {
+const getShopping = async (userId) => {
   const { rows } = await query(
     `SELECT sl.id, sl.ingredient_id, sl.price, sl.purchased,
             i.name, i.store_id, s.name AS store_name
        FROM shopping_list sl
-       JOIN ingredients i ON i.id = sl.ingredient_id
-       LEFT JOIN stores s ON s.id = i.store_id
-      WHERE sl.purchased = FALSE
+       JOIN ingredients i ON i.id = sl.ingredient_id AND i.user_id = sl.user_id
+       LEFT JOIN stores s ON s.id = i.store_id AND s.user_id = sl.user_id
+      WHERE sl.user_id = $1 AND sl.purchased = FALSE
       ORDER BY s.name NULLS LAST, i.name`,
+    [userId]
   )
   const byStore = new Map()
   let grandTotal = 0
@@ -224,42 +248,48 @@ const getShopping = async () => {
 
 // --- Dashboard composer -------------------------------------------------
 
-const composeDashboard = async (app) => {
+const composeDashboard = async (userId) => {
   const [foods, prepRows, settings, shopping, stores, ingredients] = await Promise.all([
-    getAllFoods(),
+    getAllFoods(userId),
     query(
       `SELECT pi.food_id, pi.boxes_remaining, pi.date_prepared
          FROM prep_inventory pi
-        WHERE pi.boxes_remaining > 0
+        WHERE pi.user_id = $1 AND pi.boxes_remaining > 0
         ORDER BY pi.date_prepared DESC NULLS LAST`,
+      [userId]
     ),
-    refreshSettingsLocal(app),
-    getShopping(),
-    query('SELECT id, name FROM stores ORDER BY name'),
+    getSettings(userId),
+    getShopping(userId),
+    query('SELECT id, name FROM stores WHERE user_id = $1 ORDER BY name', [userId]),
     query(
       `SELECT i.id, i.name, i.store_id, s.name AS store_name,
               i.package_price, i.package_size, i.servings_per_package, i.have
          FROM ingredients i
-         LEFT JOIN stores s ON s.id = i.store_id
-         ORDER BY i.name`,
+         LEFT JOIN stores s ON s.id = i.store_id AND s.user_id = i.user_id
+        WHERE i.user_id = $1
+        ORDER BY i.name`,
+      [userId]
     ),
   ])
 
   // Build prepped list (with full Food shape inside).
   const prepped = await Promise.all(
     prepRows.rows.map(async (pi) => {
-      const { rows: foodRow } = await query('SELECT * FROM foods WHERE id = $1', [pi.food_id])
+      const { rows: foodRow } = await query(
+        'SELECT * FROM foods WHERE id = $1 AND user_id = $2',
+        [pi.food_id, userId]
+      )
       if (foodRow.length === 0) return null
-      const food = await buildFood(foodRow[0])
+      const food = await buildFood(userId, foodRow[0])
       return {
         food,
         boxes_remaining: pi.boxes_remaining,
         date_prepared: pi.date_prepared,
       }
-    }),
+    })
   )
 
-  const [week, month] = await Promise.all([getWeekStats(), getMonthStats()])
+  const [week, month] = await Promise.all([getWeekStats(userId), getMonthStats(userId)])
 
   const fullCurrent = prepped
     .filter((p) => p && p.food.food_type === 'full')
@@ -299,14 +329,6 @@ const composeDashboard = async (app) => {
   }
 }
 
-// Helper that just returns the cached settings (or fetches if not yet loaded).
-const refreshSettingsLocal = async (app) => {
-  if (!app.locals.settings) {
-    app.locals.settings = await getSettings()
-  }
-  return app.locals.settings
-}
-
 module.exports = {
   computeStatus,
   buildFood,
@@ -318,4 +340,4 @@ module.exports = {
   getMonthStats,
   getShopping,
   composeDashboard,
-}
+};

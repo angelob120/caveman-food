@@ -220,15 +220,19 @@
     </div>
   </div>
 
-  <!-- Admin login modal -->
+  <!-- Sign-in modal: Apple only. Replaces the old password modal. -->
   <div id="cf-admin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cf-admin-title">
     <div class="modal-content modal-narrow">
       <button class="modal-close" type="button" data-close aria-label="Close">×</button>
-      <h2 id="cf-admin-title" class="section-title">🔒 ADMIN LOGIN</h2>
-      <form id="cf-admin-login-form" class="admin-login-form" autocomplete="off">
-        <input id="cf-admin-pw" type="password" placeholder="Password" autocomplete="off">
-        <button id="cf-admin-submit" type="submit" class="big-btn-success">UNLOCK</button>
-      </form>
+      <h2 id="cf-admin-title" class="section-title">🔒 SIGN IN</h2>
+      <p class="muted" style="margin:0 0 14px;font-size:13px;text-align:center">
+        Sign in with Apple to load your foods, ingredients and shopping list.
+        Your data is private to your Apple account.
+      </p>
+      <a id="cf-signin-apple" class="apple-btn" href="/auth/web/start">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16.365 1.43c0 1.14-.417 2.2-1.25 3.08-.9.98-2.06 1.55-3.19 1.46a3.4 3.4 0 0 1-.03-.41c0-1.1.48-2.26 1.32-3.12.42-.44.95-.8 1.6-1.09.64-.28 1.25-.44 1.82-.47.02.19.03.37.03.55zm3.9 16.42c-.34.79-.74 1.52-1.21 2.2-.64.93-1.16 1.57-1.57 1.93-.63.58-1.3.88-2.02.9-.52 0-1.14-.15-1.87-.45-.73-.3-1.4-.45-2.01-.45-.65 0-1.34.15-2.08.45-.74.3-1.34.46-1.79.48-.69.03-1.38-.28-2.06-.93-.44-.39-.98-1.05-1.63-2-.7-1.02-1.28-2.2-1.73-3.55-.48-1.45-.72-2.86-.72-4.22 0-1.56.34-2.9 1.01-4.03a5.9 5.9 0 0 1 2.12-2.14 5.7 5.7 0 0 1 2.86-.81c.55 0 1.27.17 2.17.5.9.34 1.47.51 1.72.51.19 0 .82-.2 1.9-.6 1.01-.37 1.87-.52 2.57-.46 1.9.15 3.32.9 4.27 2.24a4.7 4.7 0 0 0-2.5 4.27c.01 1.29.48 2.36 1.4 3.21.42.4.88.71 1.4.93-.11.32-.23.63-.36.93z"/></svg>
+        Sign in with Apple
+      </a>
     </div>
   </div>
 

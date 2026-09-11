@@ -1,5 +1,8 @@
 // Caveman Food — Express server.
-// Serves both the JSON API (/api/*) and the static frontend (../frontend).
+//
+// Apple Sign-in + multi-tenant: every record is keyed by Apple `sub`. The
+// password gate is gone. The first Apple user inherits the pre-multi-tenant
+// rows (user_id='') via claimLegacyRowsIfFirstUser.
 
 const fs = require('fs')
 const path = require('path')
@@ -7,13 +10,18 @@ const express = require('express')
 const cors = require('cors')
 
 const { pool } = require('./db')
-const { getSettings, refreshSettings } = require('./lib/dashboard')
+const {
+  startWebSignIn, finishWebSignIn, me: authMe, logout: authLogout,
+} = require('./middleware/auth')
 
 const app = express()
 
 // --- middleware ----------------------------------------------------------
 
 app.use(cors())
+// Apple Sign-in's /auth/web/callback posts application/x-www-form-urlencoded
+// (Apple's form_post response_mode). The rest of the API speaks JSON.
+app.use(express.urlencoded({ extended: false, limit: '32kb' }))
 app.use(express.json({ limit: '1mb' }))
 
 // Lightweight request log (helps debugging in dev).
@@ -49,24 +57,45 @@ const runSchema = async () => {
 }
 
 const runSeedIfEmpty = async () => {
-  // Auto-seed only when the foods table is empty AND AUTO_SEED !== 'false'.
-  // Single-user V1: this gives the user a usable library on first deploy.
+  // Auto-seed only when NO user has any foods AND AUTO_SEED !== 'false'.
+  // The first Apple user inherits these unowned rows via
+  // claimLegacyRowsIfFirstUser. After that, every new user starts empty and
+  // adds their own foods.
   if (process.env.AUTO_SEED === 'false') return
   if (!fs.existsSync(SEED_PATH)) return
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM foods')
+  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM foods WHERE user_id <> \'\'')
   if (rows[0].n > 0) {
-    console.log(`seed: skipped (foods table has ${rows[0].n} rows)`)
+    console.log(`seed: skipped (foods table has ${rows[0].n} user-owned rows)`)
     return
   }
+  // Insert seed rows with user_id='' so the first Apple user inherits them.
   const sql = fs.readFileSync(SEED_PATH, 'utf8')
   try {
     await pool.query(sql)
-    console.log('seed: applied (first-run auto-seed)')
+    console.log('seed: applied (first-run auto-seed, unowned — first Apple user inherits)')
   } catch (err) {
     console.error('auto-seed failed:', err.message)
     // Non-fatal — the API still works against an empty DB.
   }
 }
+
+// --- auth routes ---------------------------------------------------------
+
+app.get('/auth/web/start', async (req, res) => {
+  await startWebSignIn(req, res)
+})
+
+app.post('/auth/web/callback', async (req, res) => {
+  await finishWebSignIn(req, res, (text, params) => pool.query(text, params))
+})
+
+app.get('/auth/me', async (req, res) => {
+  await authMe(req, res)
+})
+
+app.post('/auth/logout', async (req, res) => {
+  authLogout(req, res)
+})
 
 // --- API routes ----------------------------------------------------------
 
@@ -103,7 +132,6 @@ app.use(express.static(FRONTEND_DIR))
 app.get(/^\/(?!api).*/, (req, res, next) => {
   const indexPath = path.join(FRONTEND_DIR, 'index.html')
   if (!fs.existsSync(indexPath)) {
-    // No frontend yet — return a friendly message.
     return res.status(200).send(
       'Caveman Food API is running. Frontend not yet deployed.',
     )
@@ -128,10 +156,7 @@ const start = async () => {
   try {
     await runSchema()
     await runSeedIfEmpty()
-    app.locals.settings = await getSettings()
-    console.log(
-      `settings loaded: ${Object.keys(app.locals.settings).join(', ') || '(empty)'}`,
-    )
+    console.log('caveman-food starting...')
   } catch (err) {
     console.error('startup failed:', err.message)
     process.exit(1)

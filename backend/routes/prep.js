@@ -1,13 +1,13 @@
 // Prep inventory routes:
-//   PATCH /api/prep/:foodId  (admin) — upsert boxes_remaining + date_prepared
+//   PATCH /api/prep/:foodId  (signed in) — upsert boxes_remaining + date_prepared
 
 const express = require('express')
 const { query } = require('../db')
-const { requireAdmin } = require('../middleware/auth')
+const { requireSignedIn } = require('../middleware/auth')
 
 const router = express.Router()
 
-router.patch('/:foodId', requireAdmin, async (req, res) => {
+router.patch('/:foodId', requireSignedIn, async (req, res) => {
   try {
     const foodId = parseInt(req.params.foodId, 10)
     if (!Number.isFinite(foodId)) return res.status(400).json({ error: 'invalid id' })
@@ -19,9 +19,10 @@ router.patch('/:foodId', requireAdmin, async (req, res) => {
         .json({ error: 'boxes_remaining or date_prepared required' })
     }
 
-    const { rows: foodRows } = await query('SELECT id FROM foods WHERE id = $1', [
-      foodId,
-    ])
+    const { rows: foodRows } = await query(
+      'SELECT id FROM foods WHERE id = $1 AND user_id = $2',
+      [foodId, req.uid]
+    )
     if (foodRows.length === 0) return res.status(404).json({ error: 'food not found' })
 
     // Build SET/VALUES param slots in the same order so the same params work
@@ -48,17 +49,20 @@ router.patch('/:foodId', requireAdmin, async (req, res) => {
       params.push(body.date_prepared || null)
       i++
     }
-    // food_id for the INSERT and conflict target.
-    const foodIdIdx = i
-    params.push(foodId)
+    // user_id for INSERT and the WHERE guard.
+    params.push(req.uid, foodId)
+
+    const userIdIdx = i++
+    const foodIdIdx = i++
 
     const { rows } = await query(
-      `INSERT INTO prep_inventory (food_id, boxes_remaining, date_prepared)
-       VALUES ($${foodIdIdx}, ${valueClauses.join(', ')})
+      `INSERT INTO prep_inventory (user_id, food_id, boxes_remaining, date_prepared)
+       VALUES ($${userIdIdx}, $${foodIdIdx}, ${valueClauses.join(', ')})
        ON CONFLICT (food_id) DO UPDATE
          SET ${setClauses.join(', ')}
+       WHERE prep_inventory.user_id = $${userIdIdx}
        RETURNING *`,
-      params,
+      params
     )
     res.json(rows[0])
   } catch (err) {

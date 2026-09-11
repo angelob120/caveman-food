@@ -2,14 +2,17 @@
 //   GET    /api/foods                 — list (filter ?type=full|quick|snack|prepped)
 //   GET    /api/foods/:id             — one Food
 //   GET    /api/foods/random          — pick a Food
-//   POST   /api/foods                 — create (admin)
-//   PUT    /api/foods/:id             — update (admin)
-//   DELETE /api/foods/:id             — soft delete (admin)
+//   POST   /api/foods                 — create (signed in)
+//   PUT    /api/foods/:id             — update (signed in)
+//   DELETE /api/foods/:id             — soft delete (signed in)
 //   POST   /api/foods/:id/eat         — log + maybe decrement prep
+//
+// All queries scoped by req.uid (Apple sub). Pre-multi-tenant rows are
+// claimed by the first Apple user (see middleware/auth.js).
 
 const express = require('express')
 const { query } = require('../db')
-const { requireAdmin } = require('../middleware/auth')
+const { requireSignedIn, attachSession } = require('../middleware/auth')
 const { buildFood, getAllFoods } = require('../lib/dashboard')
 const { costPerMealFromIngredients } = require('../lib/cost')
 
@@ -17,24 +20,26 @@ const router = express.Router()
 
 // --- helpers -------------------------------------------------------------
 
-const fetchFoodRow = async (id) => {
-  const { rows } = await query('SELECT * FROM foods WHERE id = $1', [id])
+const fetchFoodRow = async (userId, id) => {
+  const { rows } = await query('SELECT * FROM foods WHERE id = $1 AND user_id = $2', [id, userId])
   return rows[0] || null
 }
 
-const fetchIngredientRows = async (foodId) => {
+const fetchIngredientRows = async (userId, foodId) => {
   const { rows } = await query(
-    `SELECT i.id, i.name, i.store_id, i.package_price, i.package_size, i.servings_per_package
+    `SELECT i.id, i.name, i.store_id, s.name AS store_name,
+            i.package_price, i.package_size, i.servings_per_package, i.have
        FROM food_ingredients fi
-       JOIN ingredients i ON i.id = fi.ingredient_id
-      WHERE fi.food_id = $1`,
-    [foodId],
+       JOIN ingredients i ON i.id = fi.ingredient_id AND i.user_id = fi.user_id
+       LEFT JOIN stores s ON s.id = i.store_id AND s.user_id = fi.user_id
+      WHERE fi.food_id = $1 AND fi.user_id = $2`,
+    [foodId, userId]
   )
   return rows
 }
 
-const recomputeCost = async (foodId) => {
-  const ings = await fetchIngredientRows(foodId)
+const recomputeCost = async (userId, foodId) => {
+  const ings = await fetchIngredientRows(userId, foodId)
   return costPerMealFromIngredients(ings)
 }
 
@@ -53,20 +58,20 @@ const ALLOWED_FIELDS = [
 ]
 
 // --- public reads --------------------------------------------------------
-
+// Public reads (anonymous) — show ONLY ready-to-eat foods from the shared
+// library? No — every record is per-user now. So reads require sign-in too.
 router.get('/', async (req, res) => {
+  const uid = await attachSession(req);
+  if (!uid) return res.status(401).json({ error: 'sign-in required' });
   try {
     const type = req.query.type || null
     if (type && !ALLOWED_TYPES.includes(type)) {
       return res.status(400).json({ error: `unknown type: ${type}` })
     }
-    // Public reads exclude archived (active=false). Admin can request archived.
+    // Admin can request archived (anyone signed in can; we no longer have a
+    // separate "admin" concept).
     const includeArchived = req.query.include_archived === 'true'
-    const isAdmin = req.header('x-admin-password') === (process.env.ADMIN_PASSWORD || '123')
-    if (includeArchived && !isAdmin) {
-      return res.status(401).json({ error: 'admin password required' })
-    }
-    const foods = await getAllFoods(type, { includeArchived })
+    const foods = await getAllFoods(uid, type, { includeArchived })
     res.json(foods)
   } catch (err) {
     console.error('GET /api/foods failed:', err)
@@ -75,8 +80,10 @@ router.get('/', async (req, res) => {
 })
 
 router.get('/random', async (req, res) => {
+  const uid = await attachSession(req);
+  if (!uid) return res.status(401).json({ error: 'sign-in required' });
   try {
-    const foods = await getAllFoods()
+    const foods = await getAllFoods(uid)
     if (foods.length === 0) {
       return res.status(404).json({ error: 'no foods' })
     }
@@ -103,12 +110,14 @@ router.get('/random', async (req, res) => {
 })
 
 router.get('/:id', async (req, res) => {
+  const uid = await attachSession(req);
+  if (!uid) return res.status(401).json({ error: 'sign-in required' });
   try {
     const id = parseInt(req.params.id, 10)
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' })
-    const row = await fetchFoodRow(id)
+    const row = await fetchFoodRow(uid, id)
     if (!row || !row.active) return res.status(404).json({ error: 'food not found' })
-    const food = await buildFood(row)
+    const food = await buildFood(uid, row)
     res.json(food)
   } catch (err) {
     console.error('GET /api/foods/:id failed:', err)
@@ -116,9 +125,9 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-// --- eat (mutating but allowed for everyone) -----------------------------
+// --- eat (mutating but allowed for everyone signed in) -------------------
 
-router.post('/:id/eat', async (req, res) => {
+router.post('/:id/eat', requireSignedIn, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10)
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' })
@@ -126,27 +135,27 @@ router.post('/:id/eat', async (req, res) => {
     if (!['home', 'prepped'].includes(source)) {
       return res.status(400).json({ error: "source must be 'home' or 'prepped'" })
     }
-    const row = await fetchFoodRow(id)
+    const row = await fetchFoodRow(req.uid, id)
     if (!row || !row.active) return res.status(404).json({ error: 'food not found' })
 
-    const cost = await recomputeCost(id)
+    const cost = await recomputeCost(req.uid, id)
     await query(
-      `INSERT INTO food_log (food_id, label, source, cost)
-       VALUES ($1, $2, $3, $4)`,
-      [id, row.name, source, cost],
+      `INSERT INTO food_log (user_id, food_id, label, source, cost)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [req.uid, id, row.name, source, cost]
     )
 
     if (source === 'prepped') {
       await query(
         `UPDATE prep_inventory
             SET boxes_remaining = GREATEST(boxes_remaining - 1, 0)
-          WHERE food_id = $1`,
-        [id],
+          WHERE food_id = $1 AND user_id = $2`,
+        [id, req.uid]
       )
     }
 
-    const updated = await fetchFoodRow(id)
-    const food = await buildFood(updated)
+    const updated = await fetchFoodRow(req.uid, id)
+    const food = await buildFood(req.uid, updated)
     res.json(food)
   } catch (err) {
     console.error('POST /api/foods/:id/eat failed:', err)
@@ -154,9 +163,9 @@ router.post('/:id/eat', async (req, res) => {
   }
 })
 
-// --- admin CRUD ----------------------------------------------------------
+// --- signed-in CRUD ------------------------------------------------------
 
-router.post('/', requireAdmin, async (req, res) => {
+router.post('/', requireSignedIn, async (req, res) => {
   try {
     const body = req.body || {}
     if (!body.name || !body.food_type || !body.instructions) {
@@ -171,11 +180,12 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const { rows } = await query(
       `INSERT INTO foods
-         (name, image, food_type, cook_minutes, calories,
+         (user_id, name, image, food_type, cook_minutes, calories,
           instructions, instructions_short, meal_prep_compatible, favorite, active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
+        req.uid,
         body.name,
         body.image || null,
         body.food_type,
@@ -186,18 +196,18 @@ router.post('/', requireAdmin, async (req, res) => {
         !!body.meal_prep_compatible,
         !!body.favorite,
         body.active === undefined ? true : !!body.active,
-      ],
+      ]
     )
     const foodRow = rows[0]
     for (const ingId of ingredientIds) {
       await query(
-        `INSERT INTO food_ingredients (food_id, ingredient_id)
-         VALUES ($1, $2)
+        `INSERT INTO food_ingredients (user_id, food_id, ingredient_id)
+         VALUES ($1, $2, $3)
          ON CONFLICT (food_id, ingredient_id) DO NOTHING`,
-        [foodRow.id, ingId],
+        [req.uid, foodRow.id, ingId]
       )
     }
-    const built = await buildFood(foodRow)
+    const built = await buildFood(req.uid, foodRow)
     res.status(201).json(built)
   } catch (err) {
     console.error('POST /api/foods failed:', err)
@@ -205,11 +215,11 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 })
 
-router.put('/:id', requireAdmin, async (req, res) => {
+router.put('/:id', requireSignedIn, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10)
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' })
-    const row = await fetchFoodRow(id)
+    const row = await fetchFoodRow(req.uid, id)
     if (!row) return res.status(404).json({ error: 'food not found' })
 
     const body = req.body || {}
@@ -241,28 +251,28 @@ router.put('/:id', requireAdmin, async (req, res) => {
       }
     }
     if (updates.length > 0) {
-      params.push(id)
+      params.push(id, req.uid)
       await query(
-        `UPDATE foods SET ${updates.join(', ')} WHERE id = $${i}`,
-        params,
+        `UPDATE foods SET ${updates.join(', ')} WHERE id = $${i++} AND user_id = $${i}`,
+        params
       )
     }
 
     // Replace ingredient links if provided.
     if (Array.isArray(body.ingredient_ids)) {
-      await query('DELETE FROM food_ingredients WHERE food_id = $1', [id])
+      await query('DELETE FROM food_ingredients WHERE food_id = $1 AND user_id = $2', [id, req.uid])
       for (const ingId of body.ingredient_ids) {
         await query(
-          `INSERT INTO food_ingredients (food_id, ingredient_id)
-           VALUES ($1, $2)
+          `INSERT INTO food_ingredients (user_id, food_id, ingredient_id)
+           VALUES ($1, $2, $3)
            ON CONFLICT (food_id, ingredient_id) DO NOTHING`,
-          [id, ingId],
+          [req.uid, id, ingId]
         )
       }
     }
 
-    const updated = await fetchFoodRow(id)
-    const built = await buildFood(updated)
+    const updated = await fetchFoodRow(req.uid, id)
+    const built = await buildFood(req.uid, updated)
     res.json(built)
   } catch (err) {
     console.error('PUT /api/foods/:id failed:', err)
@@ -270,13 +280,13 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 })
 
-router.delete('/:id', requireAdmin, async (req, res) => {
+router.delete('/:id', requireSignedIn, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10)
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' })
     const { rowCount } = await query(
-      'UPDATE foods SET active = FALSE WHERE id = $1',
-      [id],
+      'UPDATE foods SET active = FALSE WHERE id = $1 AND user_id = $2',
+      [id, req.uid]
     )
     if (rowCount === 0) return res.status(404).json({ error: 'food not found' })
     res.status(204).end()

@@ -1,16 +1,10 @@
 // frontend/js/api.js
 // Pure fetch wrappers. Exposes window.CFApi.
-// Style: 2-space indent, single quotes, no semicolons, modern JS.
+// All requests go to /api/*. The browser sends the Apple session cookie
+// same-origin by default, so per-user scoping works without any headers.
 
 (function () {
   const API_BASE = '/api'
-
-  function adminHeader() {
-    if (typeof localStorage !== 'undefined' && localStorage.cf_admin === 'true') {
-      return { 'Content-Type': 'application/json', 'x-admin-password': '123' }
-    }
-    return { 'Content-Type': 'application/json' }
-  }
 
   async function request(path, options = {}) {
     const url = path.startsWith('http') ? path : API_BASE + path
@@ -19,9 +13,9 @@
       opts.body = JSON.stringify(opts.body)
       opts.headers['Content-Type'] = 'application/json'
     }
-    const res = await fetch(url, opts)
+    const res = await fetch(url, Object.assign({ credentials: 'same-origin' }, opts))
     const isJson = (res.headers.get('content-type') || '').includes('application/json')
-    const data = isJson ? await res.json() : null
+    const data = isJson ? await res.json().catch(() => null) : null
     if (!res.ok) {
       const msg = (data && data.error) ? data.error : ('HTTP ' + res.status)
       const err = new Error(msg)
@@ -33,7 +27,18 @@
   }
 
   const api = {
-    adminHeader,
+    // Returns { signedIn: bool, uid?: string }.
+    async me() {
+      return fetch('/auth/me', { credentials: 'same-origin' })
+        .then((r) => r.json().catch(() => ({ signedIn: false })))
+    },
+
+    async logout() {
+      return fetch('/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      }).then((r) => r.json().catch(() => ({ ok: true })))
+    },
 
     async getDashboard() {
       return request('/dashboard', { method: 'GET' })
@@ -44,8 +49,7 @@
       if (type) params.push('type=' + encodeURIComponent(type))
       if (opts && opts.includeArchived) params.push('include_archived=true')
       const q = params.length ? ('?' + params.join('&')) : ''
-      const o = (opts && opts.includeArchived) ? { headers: adminHeader() } : {}
-      return request('/foods' + q, o)
+      return request('/foods' + q, { method: 'GET' })
     },
 
     async getFood(id) {
@@ -59,29 +63,25 @@
     async eatFood(id, source) {
       return request('/foods/' + encodeURIComponent(id) + '/eat', {
         method: 'POST',
-        headers: adminHeader(),
         body: { source }
       })
     },
 
     async addToShoppingFromFood(foodId) {
       return request('/shopping/from-food/' + encodeURIComponent(foodId), {
-        method: 'POST',
-        headers: adminHeader()
+        method: 'POST'
       })
     },
 
     async markBought() {
       return request('/shopping/bought', {
-        method: 'POST',
-        headers: adminHeader()
+        method: 'POST'
       })
     },
 
     async toggleIngredient(id, have) {
       return request('/ingredients/' + encodeURIComponent(id), {
         method: 'PATCH',
-        headers: adminHeader(),
         body: { have: !!have }
       })
     },
@@ -89,7 +89,6 @@
     async logFood(body) {
       return request('/food-log', {
         method: 'POST',
-        headers: adminHeader(),
         body: body || {}
       })
     }

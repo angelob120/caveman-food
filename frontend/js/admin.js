@@ -1,6 +1,7 @@
 // frontend/js/admin.js
-// Admin panel logic. Archives, restores, deletes, adds foods/ingredients/stores.
-// Daily-use: archive (soft hide) is the default; delete is rare.
+// Admin panel logic. With Apple Sign-in there's no separate "unlock" step —
+// signing in IS unlocking. The panel is just an admin UI, visible whenever
+// the user is signed in.
 
 (function () {
   const state = {
@@ -10,21 +11,26 @@
 
   function root(id) { return document.getElementById(id) }
 
-  function isAdmin() { return localStorage.cf_admin === 'true' }
+  // "isAdmin" is now just "is signed in". Apple Sign-in replaced the password.
+  function isAdmin() {
+    return !!(window.CFApp && window.CFApp.state && window.CFApp.state.signedIn)
+  }
 
-  function adminFetch(url, opts) {
+  // Same as request but uses fetch directly so we can return null on 204.
+  async function adminFetch(path, opts) {
     opts = opts || {}
     const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {})
-    const pw = localStorage.cf_admin_pw || '123'
-    headers['x-admin-password'] = pw
-    return fetch(url, Object.assign({}, opts, { headers: headers }))
-      .then(function (r) {
-        if (!r.ok) return r.text().then(function (t) {
-          try { throw new Error(JSON.parse(t).error || t) } catch (e) { throw new Error(t || r.statusText) }
-        })
-        if (r.status === 204) return null
-        return r.json()
-      })
+    const r = await fetch(path, Object.assign({}, opts, {
+      headers,
+      credentials: 'same-origin'
+    }))
+    if (!r.ok) {
+      const t = await r.text().catch(() => '')
+      try { throw new Error(JSON.parse(t).error || t) }
+      catch (e) { throw new Error(t || r.statusText) }
+    }
+    if (r.status === 204) return null
+    return r.json()
   }
 
   // ---------- archive / restore / delete ----------
@@ -38,7 +44,6 @@
         })
         toast('✓ Restored')
       } else {
-        // Soft archive (active=false). Confirmation is a single confirm() to avoid accidents.
         if (!confirm('Archive this food? It will be hidden from the main view but kept in the database.')) return
         await adminFetch('/api/foods/' + id, { method: 'DELETE' })
         toast('✓ Archived')
@@ -52,10 +57,7 @@
   async function deleteFood(id) {
     if (!confirm('Permanently delete this food? This cannot be undone. (Use Archive to hide it instead.)')) return
     try {
-      // Hard delete: archive first, then remove food_ingredient links via DB cascade.
-      // Since DELETE route already sets active=false (soft), we use a follow-up raw call:
       await adminFetch('/api/foods/' + id, { method: 'DELETE' })
-      // No hard-delete endpoint exists by design — archive is the safe default.
       toast('✓ Archived (use DB to hard-delete)')
     } catch (err) {
       console.error('delete failed:', err)
@@ -251,24 +253,6 @@
     })
   }
 
-  // ---------- logout ----------
-
-  function bindLogout() {
-    const btn = root('cf-admin-logout')
-    if (!btn) return
-    btn.addEventListener('click', function () {
-      localStorage.removeItem('cf_admin')
-      localStorage.removeItem('cf_admin_pw')
-      if (window.CFApp) {
-        window.CFApp.setAdminMode(false)
-        window.CFApp.renderAll()
-      }
-      const panel = root('cf-admin-panel')
-      if (panel) panel.classList.add('hidden')
-      toast('🔒 Locked')
-    })
-  }
-
   // ---------- toast ----------
 
   let toastTimer = null
@@ -294,7 +278,6 @@
     if (panel) panel.classList.toggle('hidden', !admin)
     if (admin) {
       refreshFoodList()
-      // Re-render to show admin-only UI
       if (window.CFApp) window.CFApp.renderAll()
     } else {
       if (window.CFApp) window.CFApp.renderAll()
@@ -311,7 +294,6 @@
     bindAddStore()
     bindTargets()
     bindAdminFoodList()
-    bindLogout()
     onAdminModeChange()
   }
 

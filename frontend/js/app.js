@@ -1,6 +1,7 @@
 // frontend/js/app.js
 // Entry point. Loads dashboard, wires search, filters, click delegation.
-// Daily-use: 1-tap MAKE THIS on hero mini-cards, live search, sticky header.
+// Apple Sign-in: the dashboard + admin panel are only available when signed
+// in. The lock icon in the header kicks off the Apple flow when signed out.
 
 (function () {
   const state = {
@@ -11,29 +12,24 @@
     activeFilters: new Set(),
     searchQuery: '',
     showArchived: false,
-    admin: false
+    signedIn: false
   }
-
-  // ---------- helpers ----------
 
   function root(id) {
     return document.getElementById(id)
   }
 
-  function isAdmin() {
-    return localStorage.cf_admin === 'true'
-  }
+  // "Admin" is now synonymous with "signed in" — there's no separate unlock.
+  function isAdmin() { return state.signedIn }
 
   function setAdminMode(on) {
-    state.admin = !!on
-    document.body.classList.toggle('admin-mode', state.admin)
+    state.signedIn = !!on
+    document.body.classList.toggle('admin-mode', state.signedIn)
     const badge = root('cf-admin-badge')
-    if (badge) badge.classList.toggle('hidden', !state.admin)
+    if (badge) badge.classList.toggle('hidden', !state.signedIn)
     const qa = root('cf-quick-add')
-    if (qa) qa.classList.toggle('hidden', !state.admin)
+    if (qa) qa.classList.toggle('hidden', !state.signedIn)
   }
-
-  // ---------- fetch + render ----------
 
   async function refresh() {
     try {
@@ -45,23 +41,25 @@
       renderAll()
     } catch (err) {
       console.error('refresh failed:', err)
+      // 401: session expired, prompt sign-in.
+      if (err && err.status === 401) {
+        setAdminMode(false)
+        const modal = root('cf-admin-modal')
+        if (modal) modal.classList.remove('hidden')
+      }
     }
   }
 
   function renderAll() {
     const d = state.dashboard || {}
 
-    // HERO: only ready foods, no search/filters applied
-    const ready = state.foods.filter(function (f) {
-      return f.status === 'ready'
-    })
+    const ready = state.foods.filter(function (f) { return f.status === 'ready' })
     window.CFRender.renderWhatCanIMake(root('cf-wcm-list'), ready)
 
-    // BROWSE: filters + search
     const filterArr = Array.from(state.activeFilters)
     const visible = state.foods.filter(function (f) {
       if (f.active === false) {
-        if (!state.admin || !state.showArchived) return false
+        if (!state.signedIn || !state.showArchived) return false
       }
       return true
     })
@@ -105,15 +103,12 @@
       state.ingredients
     )
 
-    // Admin: refresh admin food list + ingredient chips if panel is open
-    if (state.admin) {
+    if (state.signedIn) {
       refreshAdminFoodList()
-      // Ingredient chips for the add-food form
       const grid = root('cf-admin-ingredient-grid')
       if (grid && grid.children.length === 0) {
         window.CFRender.renderIngredientChips(grid, state.ingredients, [])
       }
-      // Populate store select for add-ingredient
       const storeSel = root('cf-admin-ing-store')
       if (storeSel && storeSel.options.length === 0) {
         for (const s of state.stores) {
@@ -137,8 +132,6 @@
       console.error('refreshAdminFoodList failed:', err)
     }
   }
-
-  // ---------- filter pill clicks ----------
 
   function bindFilters() {
     const bar = root('cf-filters')
@@ -171,8 +164,6 @@
     })
   }
 
-  // ---------- search input ----------
-
   function bindSearch() {
     const search = root('cf-search')
     if (!search) return
@@ -180,37 +171,26 @@
     search.addEventListener('input', function () {
       clearTimeout(timer)
       timer = setTimeout(function () {
-        state.searchQuery = search.value.trim()
+        state.searchQuery = search.trim ? search.trim() : (search.value || '').trim()
         renderAll()
-      }, 80)  // light debounce — feels instant
+      }, 80)
     })
   }
 
-  // ---------- global click delegation ----------
-
   function bindClicks() {
     document.addEventListener('click', async function (e) {
-      // Hero mini-card: tap card = make
       const mini = e.target.closest('.cf-mini-card')
       if (mini && !e.target.closest('button')) {
         const id = parseInt(mini.dataset.id, 10)
-        if (Number.isFinite(id)) {
-          await makeFood(id, 'home')
-        }
+        if (Number.isFinite(id)) await makeFood(id, 'home')
         return
       }
-
-      // Hero mini-card: tap MAKE button = make
       const miniMake = e.target.closest('.cf-mini-card [data-action="make"]')
       if (miniMake) {
         const id = parseInt(miniMake.dataset.id, 10)
-        if (Number.isFinite(id)) {
-          await makeFood(id, miniMake.dataset.source || 'home')
-        }
+        if (Number.isFinite(id)) await makeFood(id, miniMake.dataset.source || 'home')
         return
       }
-
-      // Food card: tap card body (not buttons) = open detail modal
       const card = e.target.closest('.food-card')
       if (card && !e.target.closest('button')) {
         const id = parseInt(card.dataset.id, 10)
@@ -220,28 +200,18 @@
         }
         return
       }
-
-      // Food card: MAKE THIS button
       const make = e.target.closest('.food-card [data-action="make"]')
       if (make) {
         const id = parseInt(make.dataset.id, 10)
-        if (Number.isFinite(id)) {
-          await makeFood(id, 'home')
-        }
+        if (Number.isFinite(id)) await makeFood(id, 'home')
         return
       }
-
-      // Food card: ADD TO SHOPPING button
       const addShop = e.target.closest('.food-card [data-action="add-shopping"]')
       if (addShop) {
         const id = parseInt(addShop.dataset.id, 10)
-        if (Number.isFinite(id)) {
-          await addToShopping(id)
-        }
+        if (Number.isFinite(id)) await addToShopping(id)
         return
       }
-
-      // Food card: archive/restore inline button (admin)
       const archBtn = e.target.closest('.food-card .cf-card-archive')
       if (archBtn) {
         const id = parseInt(archBtn.dataset.id, 10)
@@ -253,8 +223,6 @@
         }
         return
       }
-
-      // BOUGHT EVERYTHING button
       if (e.target.closest('#cf-shop-bought')) {
         try {
           await window.CFApi.markBought()
@@ -265,47 +233,38 @@
         }
         return
       }
-
-      // Prep: EAT ONE
       const eatOne = e.target.closest('[data-action="eat-one"]')
       if (eatOne) {
         const id = parseInt(eatOne.dataset.id, 10)
-        if (Number.isFinite(id)) {
-          await makeFood(id, 'prepped')
-        }
+        if (Number.isFinite(id)) await makeFood(id, 'prepped')
         return
       }
-
-      // Ingredient toggle
       const ingToggle = e.target.closest('.ing-toggle')
       if (ingToggle) {
         const id = parseInt(ingToggle.dataset.id, 10)
         if (!Number.isFinite(id)) return
         const row = ingToggle.closest('.ingredient-row')
-        const name = row ? row.querySelector('.ing-name').textContent : ''
-        const newHave = ingToggle.textContent.indexOf('HAVE') !== -1  // toggle to opposite
+        const newHave = ingToggle.textContent.indexOf('HAVE') !== -1
         try {
           await window.CFApi.toggleIngredient(id, newHave)
           await refresh()
-        } catch (err) {
-          console.error('toggle failed:', err)
-        }
+        } catch (err) { console.error('toggle failed:', err) }
         return
       }
-
-      // I DON'T KNOW button
       if (e.target.closest('#cf-idk-btn')) {
         window.CFModals.openRandom()
         return
       }
-
-      // ADMIN button (header)
       if (e.target.closest('#cf-admin-btn')) {
-        window.CFModals.openAdminLogin()
+        if (state.signedIn) {
+          await window.CFApi.logout()
+          location.reload()
+        } else {
+          const modal = root('cf-admin-modal')
+          if (modal) modal.classList.remove('hidden')
+        }
         return
       }
-
-      // Quick-add floating button
       if (e.target.closest('#cf-quick-add')) {
         const manage = root('cf-manage')
         if (manage) manage.open = true
@@ -321,12 +280,9 @@
     })
   }
 
-  // ---------- action helpers ----------
-
   async function makeFood(id, source) {
     try {
       await window.CFApi.eatFood(id, source)
-      // Lightweight toast
       toast(source === 'prepped' ? '✓ Box eaten' : '✓ Logged')
       await refresh()
     } catch (err) {
@@ -347,8 +303,6 @@
     }
   }
 
-  // ---------- lightweight toast ----------
-
   let toastTimer = null
   function toast(msg) {
     let el2 = document.getElementById('cf-toast')
@@ -364,8 +318,6 @@
     toastTimer = setTimeout(function () { el2.classList.remove('show') }, 1800)
   }
 
-  // ---------- admin: show archived toggle ----------
-
   function bindAdminToggles() {
     const arch = root('cf-admin-show-archived')
     if (arch) {
@@ -376,28 +328,37 @@
     }
   }
 
-  // ---------- init ----------
+  async function init() {
+    // Check session first — if signed in, load the dashboard; otherwise show
+    // an empty page with the "Sign in" prompt in the header.
+    let me
+    try { me = await window.CFApi.me() } catch { me = { signedIn: false } }
+    setAdminMode(!!me.signedIn)
+    if (me.signedIn && me.uid) state.uid = me.uid
 
-  function init() {
-    setAdminMode(isAdmin())
     bindFilters()
     bindSearch()
     bindClicks()
     bindAdminToggles()
 
-    // Re-render on admin mode change (so admin-only UI appears)
-    window.addEventListener('storage', function (e) {
-      if (e.key === 'cf_admin') {
-        setAdminMode(isAdmin())
-        renderAll()
-        if (isAdmin()) refreshAdminFoodList()
-      }
-    })
+    if (state.signedIn) {
+      await refresh()
+    } else {
+      // Render empty sections so the page isn't a pile of "Loading…"
+      renderAll()
+    }
 
-    refresh()
+    // Refresh on focus so the dashboard stays current across sign-ins/outs.
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const fresh = await window.CFApi.me()
+        if (!!fresh.signedIn !== state.signedIn) location.reload()
+        else if (state.signedIn) await refresh()
+      } catch {}
+    })
   }
 
-  // expose for other agents
   window.CFApp = {
     refresh: refresh,
     state: state,

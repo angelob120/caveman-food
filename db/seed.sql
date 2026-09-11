@@ -8,17 +8,17 @@ BEGIN;
 -- ============================================================
 -- Stores (idempotent via UNIQUE(name))
 -- ============================================================
-INSERT INTO stores (name) VALUES
-  ('Walmart'),
-  ('Aldi'),
-  ('Kroger')
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO stores (user_id, name) VALUES
+  ('', 'Walmart'),
+  ('', 'Aldi'),
+  ('', 'Kroger')
+ON CONFLICT (user_id, name) DO NOTHING;
 
 -- ============================================================
 -- Ingredients (idempotent: skip rows whose name already exists)
 -- ============================================================
-INSERT INTO ingredients (name, store_id, package_price, package_size, servings_per_package, have)
-SELECT ing.name, s.id, ing.package_price, ing.package_size, ing.servings_per_package, ing.have
+INSERT INTO ingredients (user_id, name, store_id, package_price, package_size, servings_per_package, have)
+SELECT '', ing.name, s.id, ing.package_price, ing.package_size, ing.servings_per_package, ing.have
 FROM (VALUES
   ('Chicken Breast',          'Walmart', 12.00, '2 lb',          4.00, TRUE),
   ('Ground Beef',             'Walmart',  8.00, '1 lb',          4.00, TRUE),
@@ -57,13 +57,13 @@ FROM (VALUES
   ('Seasoning (general)',     'Walmart',  3.00, 'big jar',      30.00, TRUE)
 ) AS ing (name, store_name, package_price, package_size, servings_per_package, have)
 JOIN stores s ON s.name = ing.store_name
-WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.name = ing.name);
+WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.user_id = '' AND i.name = ing.name);
 
 -- ============================================================
 -- Foods (idempotent: skip rows whose name already exists)
 -- ============================================================
-INSERT INTO foods (name, image, food_type, cook_minutes, calories, instructions, instructions_short, meal_prep_compatible, favorite, active)
-SELECT f.name, f.image, f.food_type, f.cook_minutes, f.calories, f.instructions, f.instructions_short, f.meal_prep_compatible, FALSE, TRUE
+INSERT INTO foods (user_id, name, image, food_type, cook_minutes, calories, instructions, instructions_short, meal_prep_compatible, favorite, active)
+SELECT '', f.name, f.image, f.food_type, f.cook_minutes, f.calories, f.instructions, f.instructions_short, f.meal_prep_compatible, FALSE, TRUE
 FROM (VALUES
   -- ============ FULL MEALS (food_type='full') ============
   (
@@ -364,8 +364,8 @@ WHERE NOT EXISTS (SELECT 1 FROM foods fd WHERE fd.name = f.name);
 -- ============================================================
 -- Food ↔ Ingredient links (idempotent via UNIQUE(food_id, ingredient_id))
 -- ============================================================
-INSERT INTO food_ingredients (food_id, ingredient_id)
-SELECT fd.id, i.id
+INSERT INTO food_ingredients (user_id, food_id, ingredient_id)
+SELECT '', fd.id, i.id
 FROM (VALUES
   -- Philly Cheesesteak
   ('Philly Cheesesteak', 'Chicken Breast'),
@@ -464,8 +464,8 @@ FROM (VALUES
   ('Fruit', 'Banana')
   -- Leftover Meal-Prep Box: no ingredients (prepped food stands alone)
 ) AS m (food_name, ingredient_name)
-JOIN foods fd ON fd.name = m.food_name
-JOIN ingredients i ON i.name = m.ingredient_name
-ON CONFLICT (food_id, ingredient_id) DO NOTHING;
+JOIN foods fd ON fd.name = m.food_name AND fd.user_id = ''
+JOIN ingredients i ON i.name = m.ingredient_name AND i.user_id = ''
+ON CONFLICT (user_id, food_id, ingredient_id) DO NOTHING;
 
 COMMIT;

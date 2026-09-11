@@ -1,19 +1,17 @@
-// Settings routes:
-//   GET   /api/settings   (admin)
-//   PATCH /api/settings   (admin)
+// Settings routes (per-user, signed in):
+//   GET   /api/settings
+//   PATCH /api/settings
 
 const express = require('express')
 const { query } = require('../db')
-const { requireAdmin } = require('../middleware/auth')
-const { getSettings, refreshSettings } = require('../lib/dashboard')
-
-const router = express.Router()
+const { requireSignedIn } = require('../middleware/auth')
+const { getSettings } = require('../lib/dashboard')
 
 const NUMERIC_KEYS = ['full_prep_target', 'snack_prep_target', 'monthly_food_target']
 
-router.get('/', requireAdmin, async (req, res) => {
+router.get('/', requireSignedIn, async (req, res) => {
   try {
-    const settings = await getSettings()
+    const settings = await getSettings(req.uid)
     res.json(settings)
   } catch (err) {
     console.error('GET /api/settings failed:', err)
@@ -21,19 +19,11 @@ router.get('/', requireAdmin, async (req, res) => {
   }
 })
 
-router.patch('/', requireAdmin, async (req, res) => {
+router.patch('/', requireSignedIn, async (req, res) => {
   try {
     const body = req.body || {}
 
-    // Build a single CASE expression that handles every provided key.
-    // We only want one UPDATE ... SET value = ... statement.
     const pairs = []
-    if (body.admin_password !== undefined) {
-      if (typeof body.admin_password !== 'string' || body.admin_password.length === 0) {
-        return res.status(400).json({ error: 'admin_password must be a non-empty string' })
-      }
-      pairs.push(['admin_password', body.admin_password])
-    }
     for (const key of NUMERIC_KEYS) {
       if (body[key] !== undefined) {
         const n = parseInt(body[key], 10)
@@ -47,22 +37,15 @@ router.patch('/', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'no recognized fields to update' })
     }
 
-    const whens = []
-    const params = []
-    let i = 1
+    // Upsert each (user_id, key) pair. ON CONFLICT keeps the PK (user_id, key).
     for (const [key, value] of pairs) {
-      whens.push(`WHEN key = $${i} THEN $${i + 1}`)
-      params.push(key, value)
-      i += 2
+      await query(
+        `INSERT INTO settings (user_id, key, value) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value`,
+        [req.uid, key, value]
+      )
     }
-
-    await query(
-      `UPDATE settings
-          SET value = CASE ${whens.join(' ')} ELSE value END`,
-      params,
-    )
-    await refreshSettings(req.app)
-    const settings = await getSettings()
+    const settings = await getSettings(req.uid)
     res.json(settings)
   } catch (err) {
     console.error('PATCH /api/settings failed:', err)

@@ -1,36 +1,42 @@
 // Ingredient routes:
 //   GET    /api/ingredients
-//   POST   /api/ingredients          (admin)
-//   PATCH  /api/ingredients/:id      (admin) — toggle HAVE or full update
-//   DELETE /api/ingredients/:id      (admin)
+//   POST   /api/ingredients          (signed in)
+//   PATCH  /api/ingredients/:id      (signed in) — toggle HAVE or full update
+//   DELETE /api/ingredients/:id      (signed in)
+//
+// All scoped by req.uid.
 
 const express = require('express')
 const { query } = require('../db')
-const { requireAdmin } = require('../middleware/auth')
-const { buildIngredient, getSettings } = require('../lib/dashboard')
+const { requireSignedIn, attachSession } = require('../middleware/auth')
+const { buildIngredient } = require('../lib/dashboard')
 
 const router = express.Router()
 
-const fetchIngredientRow = async (id) => {
+const fetchIngredientRow = async (userId, id) => {
   const { rows } = await query(
     `SELECT i.id, i.name, i.store_id, s.name AS store_name,
             i.package_price, i.package_size, i.servings_per_package, i.have
        FROM ingredients i
-       LEFT JOIN stores s ON s.id = i.store_id
-      WHERE i.id = $1`,
-    [id],
+       LEFT JOIN stores s ON s.id = i.store_id AND s.user_id = i.user_id
+      WHERE i.id = $1 AND i.user_id = $2`,
+    [id, userId]
   )
   return rows[0] || null
 }
 
 router.get('/', async (req, res) => {
+  const uid = await attachSession(req);
+  if (!uid) return res.status(401).json({ error: 'sign-in required' });
   try {
     const { rows } = await query(
       `SELECT i.id, i.name, i.store_id, s.name AS store_name,
               i.package_price, i.package_size, i.servings_per_package, i.have
          FROM ingredients i
-         LEFT JOIN stores s ON s.id = i.store_id
-         ORDER BY i.name`,
+         LEFT JOIN stores s ON s.id = i.store_id AND s.user_id = i.user_id
+        WHERE i.user_id = $1
+        ORDER BY i.name`,
+      [uid]
     )
     res.json(rows.map(buildIngredient))
   } catch (err) {
@@ -39,7 +45,7 @@ router.get('/', async (req, res) => {
   }
 })
 
-router.post('/', requireAdmin, async (req, res) => {
+router.post('/', requireSignedIn, async (req, res) => {
   try {
     const body = req.body || {}
     const required = ['name', 'package_price', 'package_size', 'servings_per_package']
@@ -50,19 +56,20 @@ router.post('/', requireAdmin, async (req, res) => {
     }
     const { rows } = await query(
       `INSERT INTO ingredients
-         (name, store_id, package_price, package_size, servings_per_package, have)
-       VALUES ($1,$2,$3,$4,$5,$6)
+         (user_id, name, store_id, package_price, package_size, servings_per_package, have)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING *`,
       [
+        req.uid,
         body.name,
         body.store_id || null,
         body.package_price,
         body.package_size,
         body.servings_per_package,
         body.have === undefined ? true : !!body.have,
-      ],
+      ]
     )
-    const enriched = await fetchIngredientRow(rows[0].id)
+    const enriched = await fetchIngredientRow(req.uid, rows[0].id)
     res.status(201).json(buildIngredient(enriched))
   } catch (err) {
     console.error('POST /api/ingredients failed:', err)
@@ -70,11 +77,11 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 })
 
-router.patch('/:id', requireAdmin, async (req, res) => {
+router.patch('/:id', requireSignedIn, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10)
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' })
-    const existing = await fetchIngredientRow(id)
+    const existing = await fetchIngredientRow(req.uid, id)
     if (!existing) return res.status(404).json({ error: 'ingredient not found' })
 
     const body = req.body || {}
@@ -84,7 +91,7 @@ router.patch('/:id', requireAdmin, async (req, res) => {
 
     // Special case: { have } alone toggles inventory state.
     if (Object.prototype.hasOwnProperty.call(body, 'have') && Object.keys(body).length === 1) {
-      await query('UPDATE ingredients SET have = $1 WHERE id = $2', [!!body.have, id])
+      await query('UPDATE ingredients SET have = $1 WHERE id = $2 AND user_id = $3', [!!body.have, id, req.uid])
     } else {
       if (body.name !== undefined) {
         updates.push(`name = $${i++}`)
@@ -113,14 +120,14 @@ router.patch('/:id', requireAdmin, async (req, res) => {
       if (updates.length === 0) {
         return res.status(400).json({ error: 'no fields to update' })
       }
-      params.push(id)
+      params.push(id, req.uid)
       await query(
-        `UPDATE ingredients SET ${updates.join(', ')} WHERE id = $${i}`,
-        params,
+        `UPDATE ingredients SET ${updates.join(', ')} WHERE id = $${i++} AND user_id = $${i}`,
+        params
       )
     }
 
-    const updated = await fetchIngredientRow(id)
+    const updated = await fetchIngredientRow(req.uid, id)
     res.json(buildIngredient(updated))
   } catch (err) {
     console.error('PATCH /api/ingredients/:id failed:', err)
@@ -128,11 +135,11 @@ router.patch('/:id', requireAdmin, async (req, res) => {
   }
 })
 
-router.delete('/:id', requireAdmin, async (req, res) => {
+router.delete('/:id', requireSignedIn, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10)
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' })
-    const { rowCount } = await query('DELETE FROM ingredients WHERE id = $1', [id])
+    const { rowCount } = await query('DELETE FROM ingredients WHERE id = $1 AND user_id = $2', [id, req.uid])
     if (rowCount === 0) return res.status(404).json({ error: 'ingredient not found' })
     res.status(204).end()
   } catch (err) {
