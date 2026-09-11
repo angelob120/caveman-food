@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Caveman Food</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
+  <script src="js/api.js" defer></script>
+  <script src="js/render.js" defer></script>
+  <script src="js/modals.js" defer></script>
+  <script src="js/admin.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <main class="page">
+
+    <!-- 1. HEADER -->
+    <header id="cf-header" class="section">
+      <div class="header-row">
+        <h1 class="app-title">CAVEMAN FOOD</h1>
+        <div class="header-actions">
+          <span id="cf-admin-badge" class="admin-badge hidden">🟢 ADMIN MODE</span>
+          <button id="cf-admin-btn" class="icon-btn" type="button" aria-label="Admin login">🔒 ADMIN</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 2. WHAT CAN I MAKE -->
+    <section id="cf-what-can-i-make" class="section">
+      <h2 class="section-title">WHAT CAN I MAKE RIGHT NOW?</h2>
+      <div id="cf-wcm-list" class="card-grid">
+        <p class="placeholder">Loading…</p>
+      </div>
+    </section>
+
+    <!-- 3. RANDOM PICKER -->
+    <section id="cf-idk" class="section section-center">
+      <button id="cf-idk-btn" class="big-btn" type="button">🎲 I DON&rsquo;T KNOW WHAT TO EAT</button>
+    </section>
+
+    <!-- 4. FILTERS -->
+    <section id="cf-filters" class="section">
+      <div class="filter-bar" role="toolbar" aria-label="Filter foods">
+        <button class="filter-pill" type="button" data-filter="full">🍗 Full</button>
+        <button class="filter-pill" type="button" data-filter="quick">🥪 Quick</button>
+        <button class="filter-pill" type="button" data-filter="snack">🍓 Snack</button>
+        <button class="filter-pill" type="button" data-filter="prepped">🧊 Prepped</button>
+        <button class="filter-pill" type="button" data-filter="cheap">💰 Cheap</button>
+        <button class="filter-pill" type="button" data-filter="fast">⚡ Fast</button>
+      </div>
+    </section>
+
+    <!-- 5. EAT SOMETHING -->
+    <section id="cf-foods" class="section">
+      <h2 class="section-title">EAT SOMETHING</h2>
+      <div id="cf-food-grid" class="card-grid">
+        <p class="placeholder">Loading…</p>
+      </div>
+    </section>
+
+    <!-- 6. PREPPED FOOD -->
+    <section id="cf-prepped" class="section">
+      <h2 class="section-title">PREPPED FOOD</h2>
+      <div id="cf-prep-targets" class="prep-targets">
+        <p class="placeholder">Loading…</p>
+      </div>
+      <div id="cf-prep-list" class="prep-list">
+        <p class="placeholder">Loading…</p>
+      </div>
+    </section>
+
+    <!-- 7. SHOPPING -->
+    <section id="cf-shopping" class="section">
+      <h2 class="section-title">🛒 SHOPPING</h2>
+      <div id="cf-shop-list" class="shop-list">
+        <p class="placeholder">Loading…</p>
+      </div>
+      <div class="section-center">
+        <button id="cf-shop-bought" class="big-btn-success" type="button">✅ BOUGHT EVERYTHING</button>
+      </div>
+    </section>
+
+    <!-- 8. STATS -->
+    <section id="cf-stats" class="section">
+      <h2 class="section-title">FOOD THIS WEEK</h2>
+      <div id="cf-week-stats" class="stats-block">
+        <p class="placeholder">Loading…</p>
+      </div>
+      <h2 class="section-title">FOOD THIS MONTH</h2>
+      <div id="cf-month-stats" class="stats-block">
+        <p class="placeholder">Loading…</p>
+      </div>
+    </section>
+
+    <!-- 9. INGREDIENTS -->
+    <section id="cf-ingredients" class="section">
+      <h2 class="section-title">INGREDIENTS</h2>
+      <div id="cf-ingredient-list" class="ingredient-list">
+        <p class="placeholder">Loading…</p>
+      </div>
+    </section>
+
+    <!-- 10. RULES (static, from docs/RULES.md) -->
+    <section id="cf-rules" class="section">
+      <h2 class="section-title">RULES</h2>
+      <div class="rule"><strong>RULE 1 — FOOD AT HOME FIRST.</strong> Before buying restaurant food: check this app.</div>
+      <div class="rule"><strong>RULE 2 — PICK FROM THE LIST.</strong> Don&rsquo;t sit around trying to invent what to eat. Open WHAT CAN I MAKE? Pick something.</div>
+      <div class="rule"><strong>RULE 3 — PREPPED FOOD WINS.</strong> If a meal is already prepared, eat that before creating more work.</div>
+      <div class="rule"><strong>RULE 4 — RESTAURANT FOOD IS NOT THE DEFAULT.</strong> Home food = normal. Eating out = optional.</div>
+      <div class="rule"><strong>RULE 5 — EASY BEATS PERFECT.</strong> Chicken tenders + fries at home is better than spending $25 because cooking something complicated felt like too much.</div>
+      <div class="rule"><strong>RULE 6 — KEEP FOOD I ACTUALLY LIKE.</strong> Don&rsquo;t build a food list around fantasy meals I won&rsquo;t eat.</div>
+      <div class="rule"><strong>RULE 7 — RUNNING LOW = ADD IT.</strong> If something is almost gone, mark OUT or ADD TO SHOPPING. Don&rsquo;t wait until there is nothing to eat.</div>
+    </section>
+
+    <!-- 11. ADMIN PANEL (hidden by default, JS unhides) -->
+    <section id="cf-admin-panel" class="section admin-panel hidden">
+      <h2 class="section-title">ADMIN</h2>
+
+      <form id="cf-admin-add-food" class="admin-form" autocomplete="off">
+        <h3>Add food</h3>
+        <label>Name <input type="text" name="name" required></label>
+        <label>Emoji <input type="text" name="image" maxlength="4" placeholder="🌮"></label>
+        <label>Type
+          <select name="food_type">
+            <option value="full">Full</option>
+            <option value="quick">Quick</option>
+            <option value="snack">Snack</option>
+            <option value="prepped">Prepped</option>
+          </select>
+        </label>
+        <label>Cook minutes <input type="number" name="cook_minutes" min="0" value="10"></label>
+        <label>Calories <input type="number" name="calories" min="0" value="500"></label>
+        <label class="full">Instructions <textarea name="instructions" rows="3"></textarea></label>
+        <label class="full">Short instructions <textarea name="instructions_short" rows="2"></textarea></label>
+        <label class="full"><input type="checkbox" name="meal_prep_compatible"> Meal-prep compatible</label>
+        <label class="full">Ingredient IDs (comma-separated) <input type="text" name="ingredient_ids"></label>
+        <button type="submit" class="big-btn-success">+ ADD FOOD</button>
+      </form>
+
+      <form id="cf-admin-add-ing" class="admin-form" autocomplete="off">
+        <h3>Add ingredient</h3>
+        <label>Name <input type="text" name="name" required></label>
+        <label>Store
+          <select name="store_id" id="cf-admin-ing-store"></select>
+        </label>
+        <label>Package price ($) <input type="number" name="package_price" step="0.01" min="0" required></label>
+        <label>Package size <input type="text" name="package_size" placeholder="2 lb"></label>
+        <label>Servings per package <input type="number" name="servings_per_package" min="1" value="1" required></label>
+        <button type="submit" class="big-btn-success">+ ADD INGREDIENT</button>
+      </form>
+
+      <form id="cf-admin-add-store" class="admin-form" autocomplete="off">
+        <h3>Add store</h3>
+        <label>Name <input type="text" name="name" required></label>
+        <label class="full">Notes <input type="text" name="notes"></label>
+        <button type="submit" class="big-btn-success">+ ADD STORE</button>
+      </form>
+
+      <form id="cf-admin-targets" class="admin-form" autocomplete="off">
+        <h3>Prep targets</h3>
+        <label>Full meals target <input type="number" name="full_prep_target" min="0" value="10"></label>
+        <label>Snack target <input type="number" name="snack_prep_target" min="0" value="5"></label>
+        <label>Monthly food budget ($) <input type="number" name="monthly_food_target" min="0" value="400"></label>
+        <button type="submit" class="big-btn-success">SAVE TARGETS</button>
+      </form>
+
+      <div class="section-center">
+        <button id="cf-admin-logout" class="big-btn" type="button">🔒 LOCK</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Detail modal -->
+  <div id="cf-detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cf-detail-title">
+    <div class="modal-content">
+      <button class="modal-close" type="button" data-close aria-label="Close">×</button>
+      <div id="cf-detail-body"></div>
+    </div>
+  </div>
+
+  <!-- Random modal -->
+  <div id="cf-random-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cf-random-title">
+    <div class="modal-content">
+      <button class="modal-close" type="button" data-close aria-label="Close">×</button>
+      <div id="cf-random-body"></div>
+    </div>
+  </div>
+
+  <!-- Admin login modal -->
+  <div id="cf-admin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cf-admin-title">
+    <div class="modal-content modal-narrow">
+      <button class="modal-close" type="button" data-close aria-label="Close">×</button>
+      <h2 id="cf-admin-title" class="section-title">ADMIN LOGIN</h2>
+      <form id="cf-admin-login-form" class="admin-login-form" autocomplete="off">
+        <input id="cf-admin-pw" type="password" placeholder="Password" autocomplete="off">
+        <button id="cf-admin-submit" type="submit" class="big-btn-success">UNLOCK</button>
+      </form>
+    </div>
+  </div>
+
+</body>
+</html>

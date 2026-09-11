@@ -67,6 +67,7 @@ These are the **law**. If reality contradicts them, update the doc AND tell the 
 |---|---|---|
 | 2026-09-11 | Repo created, skeleton + contracts written | Mavis |
 | 2026-09-11 | Stack locked (vanilla JS, Express, Postgres, Railway) | Mavis |
+| 2026-09-11 | Frontend HTML structure (11 sections, 3 modals) + dark-theme CSS — Alpine.js loaded via CDN | Agent 3 |
 
 ---
 
