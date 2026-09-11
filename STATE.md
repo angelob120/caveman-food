@@ -27,7 +27,7 @@ One-page food dashboard. "What can I eat right now?" killer feature. Vanilla JS 
 | API contract | Mavis | ✅ DONE | `docs/API.md` |
 | Frontend DOM contract | Mavis | ✅ DONE | `docs/SEED.md` |
 | Seed data | Agent 1 | ✅ DONE | `db/seed.sql` + `db/seed.js` (idempotent; 3 stores, 35 ingredients, 29 foods, 67 food-ingredient links) |
-| Backend | Agent 2 | 🔲 TODO | `backend/*` |
+| Backend | Agent 2 | ✅ DONE | `backend/*` — Express + pg, all docs/API.md routes, /api/dashboard aggregator, auto-schema bootstrap |
 | Frontend HTML/CSS | Agent 3 | 🔲 TODO | `frontend/index.html`, `frontend/styles.css` |
 | Frontend JS (core) | Agent 4 | 🔲 TODO | `frontend/js/api.js`, `frontend/js/render.js` |
 | Frontend JS (interactions) | Agent 5 | 🔲 TODO | `frontend/js/modals.js`, `frontend/js/admin.js`, `frontend/js/app.js` |
@@ -67,6 +67,7 @@ These are the **law**. If reality contradicts them, update the doc AND tell the 
 |---|---|---|
 | 2026-09-11 | Repo created, skeleton + contracts written | Mavis |
 | 2026-09-11 | Stack locked (vanilla JS, Express, Postgres, Railway) | Mavis |
+| 2026-09-11 | Backend Express API with all routes + dashboard aggregator | Agent 2 |
 | 2026-09-11 | Railway project `caveman-food` created; Postgres provisioned; web service scaffolded; config files written (railway.toml, Procfile, .env.example, .gitignore) | Agent 6 |
 | 2026-09-11 | Public URL generated: `https://caveman-web-production.up.railway.app` | Agent 6 |
 
