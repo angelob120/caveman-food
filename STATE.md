@@ -67,6 +67,32 @@ These are the **law**. If reality contradicts them, update the doc AND tell the 
 |---|---|---|
 | 2026-09-11 | Repo created, skeleton + contracts written | Mavis |
 | 2026-09-11 | Stack locked (vanilla JS, Express, Postgres, Railway) | Mavis |
+| 2026-09-11 | Railway project `caveman-food` created; Postgres provisioned; web service scaffolded; config files written (railway.toml, Procfile, .env.example, .gitignore) | Agent 6 |
+| 2026-09-11 | Public URL generated: `https://caveman-web-production.up.railway.app` | Agent 6 |
+
+---
+
+## Deployment
+
+**Project:** `caveman-food` on Angelo Brown's Projects (workspace)
+**Project ID:** `68e243a3-f0ce-4099-ab6d-ac71bbeedad4`
+**Public URL:** https://caveman-web-production.up.railway.app
+**Environment:** `production`
+
+**Services:**
+| Service | ID | Status | Notes |
+|---|---|---|---|
+| `Postgres` | `d17641e3-5346-4b2e-9936-3daefe469b4f` | ✅ Running (pg 18) | Volume mounted at `/var/lib/postgresql/data`; auto `DATABASE_URL` |
+| `caveman-web` | `ab8721a2-0e37-4f26-9b3c-c8ff9653751b` | ⚠ Build pending | Has healthcheck `/api/health`; needs Agent 2's `package.json` to build |
+
+**Env vars on `caveman-web`:**
+- `ADMIN_PASSWORD=123`
+- `PORT=3000`
+- `NODE_ENV=production`
+- `DATABASE_URL=${{Postgres.DATABASE_URL}}` (auto-resolves to Postgres internal URL)
+
+**Open deployment blockers:**
+- Build fails with "Railpack could not determine how to build the app" — root has no `package.json`. Agent 2 must add `backend/package.json` (with `express` + `pg` deps and a `start` script). Railpack will then auto-detect Node. Once Agent 2's `backend/server.js` exists, the next `railway up` (or git push to main) will succeed.
 | 2026-09-11 | Seed data + runner (`db/seed.sql`, `db/seed.js`, `db/package.json`) | Agent 1 |
 | 2026-09-11 | Frontend JS core: `api.js` (10 fetch wrappers on `window.CFApi`) + `render.js` (6 render funcs + `foodCardEl` helper on `window.CFRender`) | Agent 4 |
 | 2026-09-11 | Frontend HTML structure (11 sections, 3 modals) + dark-theme CSS — Alpine.js loaded via CDN | Agent 3 |
