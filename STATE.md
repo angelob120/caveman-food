@@ -26,12 +26,23 @@ One-page food dashboard. "What can I eat right now?" killer feature. Vanilla JS 
 | Schema | Mavis (manager) | ✅ DONE | `db/schema.sql` — idempotent |
 | API contract | Mavis | ✅ DONE | `docs/API.md` |
 | Frontend DOM contract | Mavis | ✅ DONE | `docs/SEED.md` |
-| Seed data | Agent 1 | ✅ DONE | `db/seed.sql` + `db/seed.js` (idempotent; 3 stores, 35 ingredients, 29 foods, 67 food-ingredient links) |
-| Backend | Agent 2 | ✅ DONE | `backend/*` — Express + pg, all docs/API.md routes, /api/dashboard aggregator, auto-schema bootstrap |
-| Frontend HTML/CSS | Agent 3 | 🔲 TODO | `frontend/index.html`, `frontend/styles.css` |
-| Frontend JS (core) | Agent 4 | 🔲 TODO | `frontend/js/api.js`, `frontend/js/render.js` |
+| Seed data | Agent 1 | ✅ DONE | `db/seed.sql` + `db/seed.js` (3 stores, 35 ingredients, 29 foods) |
+| Backend | Agent 2 | ✅ DONE | `backend/*` — all 19 routes + `/api/health` + auto-schema |
+| Frontend HTML/CSS | Agent 3 | ✅ DONE | `frontend/index.html`, `frontend/styles.css` (dark theme, mobile-first) |
+| Frontend JS (core) | Agent 4 | ✅ DONE | `frontend/js/api.js`, `frontend/js/render.js` (10 API methods, 6 render fns) |
 | Frontend JS (interactions) | Agent 5 | ✅ DONE | `frontend/js/modals.js`, `frontend/js/admin.js`, `frontend/js/app.js` |
-| Deployment | Agent 6 | 🔲 TODO | Railway setup + smoke test |
+| Deployment | Agent 6 | ✅ DONE | **Live:** https://caveman-web-production.up.railway.app |
+
+---
+
+## Deployment
+- **Live URL:** https://caveman-web-production.up.railway.app
+- **Railway project:** `caveman-food` (Angelo Brown's workspace)
+- **Postgres:** plugin-managed, internal DNS `postgres.railway.internal`
+- **Web service:** `caveman-web` — Node auto-detected via root `package.json`
+- **Env vars:** `DATABASE_URL`, `ADMIN_PASSWORD=123`, `PORT=3000`, `NODE_ENV=production`
+- **Auto-seed:** on first deploy when `foods` table is empty; disable with `AUTO_SEED=false`
+- **Push-to-deploy:** `git push origin main` → Railway rebuilds + restarts
 
 ---
 
@@ -67,6 +78,17 @@ These are the **law**. If reality contradicts them, update the doc AND tell the 
 |---|---|---|
 | 2026-09-11 | Repo created, skeleton + contracts written | Mavis |
 | 2026-09-11 | Stack locked (vanilla JS, Express, Postgres, Railway) | Mavis |
+| 2026-09-11 | STATE.md + AGENTS.md context system added | Mavis |
+| 2026-09-11 | Seed data (3 stores, 35 ingredients, 29 foods) | Agent 1 |
+| 2026-09-11 | Backend (19 routes, dashboard aggregator) | Agent 2 |
+| 2026-09-11 | Frontend HTML + dark theme CSS | Agent 3 |
+| 2026-09-11 | Frontend core JS (api + render) | Agent 4 |
+| 2026-09-11 | Frontend interactions JS (modals + admin + app) | Agent 5 |
+| 2026-09-11 | Railway provisioned, configs committed | Agent 6 |
+| 2026-09-11 | Integration fixes (#cf-shop-grand, /api/health) | Mavis |
+| 2026-09-11 | Root package.json for Railpack Node detection | Mavis |
+| 2026-09-11 | Auto-seed on first deploy | Mavis |
+| 2026-09-11 | **Live verified — all 11 smoke checks pass** | Mavis |
 | 2026-09-11 | Frontend interactions JS (modals, admin panel, app entry) | Agent 5 |
 | 2026-09-11 | Backend Express API with all routes + dashboard aggregator | Agent 2 |
 | 2026-09-11 | Railway project `caveman-food` created; Postgres provisioned; web service scaffolded; config files written (railway.toml, Procfile, .env.example, .gitignore) | Agent 6 |
