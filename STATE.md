@@ -12,7 +12,7 @@ One-page food dashboard. "What can I eat right now?" killer feature. Vanilla JS 
 ---
 
 ## Stack (locked)
-- **Frontend:** Vanilla HTML + CSS + JS, no build step, no framework
+- **Frontend:** Vanilla HTML + CSS + JS, no build step. Alpine.js via CDN allowed for reactive state if it helps.
 - **Backend:** Node.js + Express + node-postgres (`pg`)
 - **DB:** PostgreSQL (Railway-managed)
 - **Hosting:** Railway (single service serves both API and static frontend)

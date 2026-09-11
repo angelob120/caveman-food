@@ -96,10 +96,15 @@ Contains `<input id="cf-admin-pw" type="password">` + `<button id="cf-admin-subm
 ```
 
 ## Visual style
-- Single dark theme, big readable type, no frameworks
+- Single dark theme, big readable type
 - Mobile-first, works down to 360px
 - System fonts only; emojis as icons
 - CSS file at `frontend/styles.css`
+
+## Framework allowance
+- **No build step.** No bundlers, no TypeScript, no JSX, no npm install on the frontend.
+- Vanilla JS by default. If a frontend JS agent finds it faster, they MAY load **Alpine.js** via CDN (`<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>`) for reactive state. Document the choice in STATE.md Changelog.
+- No React, no Vue, no Svelte — those require a build step.
 
 ## Behavior contract
 - `localStorage.cf_admin === 'true'` ⇒ admin mode

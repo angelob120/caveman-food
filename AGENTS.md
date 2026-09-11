@@ -38,3 +38,4 @@ DATABASE_URL=postgres://localhost:5432/caveman node server.js
 - 2-space indent
 - Single-quote strings, semicolons off (modern JS)
 - Async/await, not callbacks
+- **No build step.** If frontend needs reactivity, use Alpine.js via CDN. Document any framework choice in STATE.md.
