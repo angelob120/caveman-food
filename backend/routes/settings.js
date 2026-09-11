@@ -7,6 +7,8 @@ const { query } = require('../db')
 const { requireSignedIn } = require('../middleware/auth')
 const { getSettings } = require('../lib/dashboard')
 
+const router = express.Router()
+
 const NUMERIC_KEYS = ['full_prep_target', 'snack_prep_target', 'monthly_food_target']
 
 router.get('/', requireSignedIn, async (req, res) => {

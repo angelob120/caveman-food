@@ -11,7 +11,7 @@ const cors = require('cors')
 
 const { pool } = require('./db')
 const {
-  startWebSignIn, finishWebSignIn, me: authMe, logout: authLogout,
+  startWebSignIn, finishWebSignIn, me: authMe, logout: authLogout, requireSignedIn,
 } = require('./middleware/auth')
 
 const app = express()
@@ -47,6 +47,17 @@ const runSchema = async () => {
     return
   }
   const sql = fs.readFileSync(SCHEMA_PATH, 'utf8')
+  // Pre-pass: add the user_id column to any pre-existing tables. The schema
+  // declares indexes on (user_id) inline, which fail on legacy DBs where the
+  // table exists but is missing the column — and because the file is applied
+  // as one multi-statement query, a single failure rolls the whole thing back.
+  // Take the table list from the schema itself so it can't drift out of sync.
+  const tables = [...sql.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/gi)].map((m) => m[1])
+  for (const t of tables) {
+    try {
+      await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`)
+    } catch { /* table doesn't exist yet — first deploy */ }
+  }
   try {
     await pool.query(sql)
     console.log('schema: applied (idempotent)')
@@ -108,14 +119,18 @@ app.get('/api/health', async (req, res) => {
   }
 })
 
-app.use('/api/dashboard', require('./routes/dashboard'))
-app.use('/api/foods', require('./routes/foods'))
-app.use('/api/ingredients', require('./routes/ingredients'))
-app.use('/api/stores', require('./routes/stores'))
-app.use('/api/shopping', require('./routes/shopping'))
-app.use('/api/prep', require('./routes/prep'))
-app.use('/api/food-log', require('./routes/log'))
-app.use('/api/settings', require('./routes/settings'))
+// Every data router is gated here as well as inside each handler. The handlers
+// need their own check to get the uid they scope queries by; this mount-level
+// guard is the backstop, so a route added later without one still can't serve
+// another user's rows.
+app.use('/api/dashboard', requireSignedIn, require('./routes/dashboard'))
+app.use('/api/foods', requireSignedIn, require('./routes/foods'))
+app.use('/api/ingredients', requireSignedIn, require('./routes/ingredients'))
+app.use('/api/stores', requireSignedIn, require('./routes/stores'))
+app.use('/api/shopping', requireSignedIn, require('./routes/shopping'))
+app.use('/api/prep', requireSignedIn, require('./routes/prep'))
+app.use('/api/food-log', requireSignedIn, require('./routes/log'))
+app.use('/api/settings', requireSignedIn, require('./routes/settings'))
 
 // JSON 404 for unmatched /api routes.
 app.use('/api', (req, res) => {
