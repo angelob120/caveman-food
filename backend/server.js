@@ -49,6 +49,15 @@ const runSchema = async () => {
 
 // --- API routes ----------------------------------------------------------
 
+app.get('/api/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1')
+    res.json({ ok: true, time: new Date().toISOString() })
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message })
+  }
+})
+
 app.use('/api/dashboard', require('./routes/dashboard'))
 app.use('/api/foods', require('./routes/foods'))
 app.use('/api/ingredients', require('./routes/ingredients'))
