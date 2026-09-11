@@ -26,7 +26,7 @@ One-page food dashboard. "What can I eat right now?" killer feature. Vanilla JS 
 | Schema | Mavis (manager) | ✅ DONE | `db/schema.sql` — idempotent |
 | API contract | Mavis | ✅ DONE | `docs/API.md` |
 | Frontend DOM contract | Mavis | ✅ DONE | `docs/SEED.md` |
-| Seed data | Agent 1 | 🔲 TODO | `db/seed.sql` + `db/seed.js` |
+| Seed data | Agent 1 | ✅ DONE | `db/seed.sql` + `db/seed.js` (idempotent; 3 stores, 35 ingredients, 29 foods, 67 food-ingredient links) |
 | Backend | Agent 2 | 🔲 TODO | `backend/*` |
 | Frontend HTML/CSS | Agent 3 | 🔲 TODO | `frontend/index.html`, `frontend/styles.css` |
 | Frontend JS (core) | Agent 4 | 🔲 TODO | `frontend/js/api.js`, `frontend/js/render.js` |
@@ -67,6 +67,7 @@ These are the **law**. If reality contradicts them, update the doc AND tell the 
 |---|---|---|
 | 2026-09-11 | Repo created, skeleton + contracts written | Mavis |
 | 2026-09-11 | Stack locked (vanilla JS, Express, Postgres, Railway) | Mavis |
+| 2026-09-11 | Seed data + runner (`db/seed.sql`, `db/seed.js`, `db/package.json`) | Agent 1 |
 | 2026-09-11 | Frontend JS core: `api.js` (10 fetch wrappers on `window.CFApi`) + `render.js` (6 render funcs + `foodCardEl` helper on `window.CFRender`) | Agent 4 |
 | 2026-09-11 | Frontend HTML structure (11 sections, 3 modals) + dark-theme CSS — Alpine.js loaded via CDN | Agent 3 |
 
