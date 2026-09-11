@@ -31,6 +31,7 @@ app.use((req, res, next) => {
 // --- schema bootstrap ----------------------------------------------------
 
 const SCHEMA_PATH = path.join(__dirname, '..', 'db', 'schema.sql')
+const SEED_PATH = path.join(__dirname, '..', 'db', 'seed.sql')
 
 const runSchema = async () => {
   if (!fs.existsSync(SCHEMA_PATH)) {
@@ -44,6 +45,26 @@ const runSchema = async () => {
   } catch (err) {
     console.error('schema bootstrap failed:', err.message)
     throw err
+  }
+}
+
+const runSeedIfEmpty = async () => {
+  // Auto-seed only when the foods table is empty AND AUTO_SEED !== 'false'.
+  // Single-user V1: this gives the user a usable library on first deploy.
+  if (process.env.AUTO_SEED === 'false') return
+  if (!fs.existsSync(SEED_PATH)) return
+  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM foods')
+  if (rows[0].n > 0) {
+    console.log(`seed: skipped (foods table has ${rows[0].n} rows)`)
+    return
+  }
+  const sql = fs.readFileSync(SEED_PATH, 'utf8')
+  try {
+    await pool.query(sql)
+    console.log('seed: applied (first-run auto-seed)')
+  } catch (err) {
+    console.error('auto-seed failed:', err.message)
+    // Non-fatal — the API still works against an empty DB.
   }
 }
 
@@ -106,6 +127,7 @@ const PORT = parseInt(process.env.PORT, 10) || 3000
 const start = async () => {
   try {
     await runSchema()
+    await runSeedIfEmpty()
     app.locals.settings = await getSettings()
     console.log(
       `settings loaded: ${Object.keys(app.locals.settings).join(', ') || '(empty)'}`,
