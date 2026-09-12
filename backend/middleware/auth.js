@@ -25,6 +25,13 @@ const OAUTH_COOKIE = 'cf_oauth';
 const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || 'Attendance-app-nfc.tracker';
 const APPLE_WEB_CLIENT_ID = process.env.APPLE_WEB_CLIENT_ID || '';
 
+// The pre-multi-tenant rows (user_id = '') are the owner's. "First Apple user
+// to sign in inherits them" was a race: anyone signing in before the owner did
+// would take the lot. When OWNER_APPLE_SUB is set, only that sub can claim.
+const OWNER_SUBS = new Set(
+  (process.env.OWNER_APPLE_SUB || '').split(',').map((s) => s.trim()).filter(Boolean)
+);
+
 const APPLE_ISSUER = 'https://appleid.apple.com';
 const APPLE_JWKS = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
 
@@ -124,21 +131,24 @@ async function attachSession(req) {
   catch { return null; }
 }
 
-// The "admin" gate is now just "signed in". Same Apple ID works everywhere.
+// Only these Apple subs may use the app at all. Fails closed: with
+// OWNER_APPLE_SUB unset nobody gets in, rather than silently opening the app to
+// every Apple account.
+function isOwner(uid) {
+  return Boolean(uid) && OWNER_SUBS.has(uid);
+}
+
+// Signed in AND the owner. This is one person's food data; a second Apple
+// account has no reason to reach it, so it is refused rather than handed an
+// empty workspace.
 function requireSignedIn(req, res, next) {
   attachSession(req).then((uid) => {
     if (!uid) return res.status(401).json({ error: 'sign-in required' });
+    if (!isOwner(uid)) return res.status(403).json({ error: 'This account is private.' });
     req.uid = uid;
     next();
   }).catch(() => res.status(401).json({ error: 'sign-in required' }));
 }
-
-// The pre-multi-tenant rows (user_id = '') are the owner's. "First Apple user
-// to sign in inherits them" was a race: anyone signing in before the owner did
-// would take the lot. When OWNER_APPLE_SUB is set, only that sub can claim.
-const OWNER_SUBS = new Set(
-  (process.env.OWNER_APPLE_SUB || '').split(',').map((s) => s.trim()).filter(Boolean)
-);
 
 async function claimLegacyRowsIfFirstUser(query, uid) {
   if (OWNER_SUBS.size > 0 && !OWNER_SUBS.has(uid)) return;
@@ -207,6 +217,10 @@ async function finishWebSignIn(req, res, queryFn) {
     res.status(401).type('text/plain').send('Apple verification failed.');
     return;
   }
+  if (!isOwner(uid)) {
+    res.status(403).type('text/plain').send('This account is private.');
+    return;
+  }
   await claimLegacyRowsIfFirstUser(queryFn, uid);
   const session = await signSession(uid);
   setCookie(res, COOKIE, session, { maxAge: SESSION_TTL_S, sameSite: 'Lax' });
@@ -215,7 +229,7 @@ async function finishWebSignIn(req, res, queryFn) {
 
 async function me(req, res) {
   const uid = await attachSession(req);
-  if (!uid) {
+  if (!isOwner(uid)) {
     res.status(401).json({ signedIn: false });
     return;
   }
